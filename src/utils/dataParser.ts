@@ -43,29 +43,28 @@ export const JOINT_NAMES = [
 
 // Joint connections for skeleton visualization
 export const BONE_CONNECTIONS = [
-  ['Pelvis', 'Spine1'],
-  ['Spine1', 'Spine2'],
-  ['Spine2', 'Spine3'],
-  ['Spine3', 'Neck'],
-  ['Neck', 'Head'],
-  ['Pelvis', 'L_Hip'],
-  ['Pelvis', 'R_Hip'],
-  ['L_Hip', 'L_Knee'],
-  ['R_Hip', 'R_Knee'],
-  ['L_Knee', 'L_Ankle'],
-  ['R_Knee', 'R_Ankle'],
-  ['L_Ankle', 'L_Foot'],
-  ['R_Ankle', 'R_Foot'],
-  ['Spine3', 'L_Collar'],
-  ['Spine3', 'R_Collar'],
-  ['L_Collar', 'L_Shoulder'],
-  ['R_Collar', 'R_Shoulder'],
-  ['L_Shoulder', 'L_Elbow'],
+  // Head to Neck
+  ['Head', 'Neck'],
+  // Neck to Pelvis (spine)
+  ['Neck', 'Pelvis'],
+  // Right arm: Neck → Right Shoulder → Right Elbow → Right Wrist
+  ['Neck', 'R_Shoulder'],
   ['R_Shoulder', 'R_Elbow'],
-  ['L_Elbow', 'L_Wrist'],
   ['R_Elbow', 'R_Wrist'],
-  ['L_Wrist', 'L_Hand'],
-  ['R_Wrist', 'R_Hand']
+  // Left arm: Neck → Left Shoulder → Left Elbow → Left Wrist
+  ['Neck', 'L_Shoulder'],
+  ['L_Shoulder', 'L_Elbow'],
+  ['L_Elbow', 'L_Wrist'],
+  // Right leg: Pelvis → Right Hip → Right Knee → Right Ankle → Right Foot
+  ['Pelvis', 'R_Hip'],
+  ['R_Hip', 'R_Knee'],
+  ['R_Knee', 'R_Ankle'],
+  ['R_Ankle', 'R_Foot'],
+  // Left leg: Pelvis → Left Hip → Left Knee → Left Ankle → Left Foot
+  ['Pelvis', 'L_Hip'],
+  ['L_Hip', 'L_Knee'],
+  ['L_Knee', 'L_Ankle'],
+  ['L_Ankle', 'L_Foot']
 ];
 
 export class DataParser {
