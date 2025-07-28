@@ -33,12 +33,25 @@ export interface MotionData {
   jointNames: string[];
 }
 
-// Standard baseball motion capture joint names
+// Baseball motion capture joint names (indexed system)
 export const JOINT_NAMES = [
-  'Pelvis', 'L_Hip', 'R_Hip', 'Spine1', 'L_Knee', 'R_Knee', 'Spine2',
-  'L_Ankle', 'R_Ankle', 'Spine3', 'L_Foot', 'R_Foot', 'Neck', 'L_Collar',
-  'R_Collar', 'Head', 'L_Shoulder', 'R_Shoulder', 'L_Elbow', 'R_Elbow',
-  'L_Wrist', 'R_Wrist', 'L_Hand', 'R_Hand'
+  'Head',        // 0
+  'Neck',        // 1
+  'R_Shoulder',  // 2
+  'R_Elbow',     // 3
+  'R_Wrist',     // 4
+  'L_Shoulder',  // 5
+  'L_Elbow',     // 6
+  'L_Wrist',     // 7
+  'Pelvis',      // 8
+  'R_Hip',       // 9
+  'R_Knee',      // 10
+  'R_Ankle',     // 11
+  'R_Foot',      // 12
+  'L_Hip',       // 13
+  'L_Knee',      // 14
+  'L_Ankle',     // 15
+  'L_Foot'       // 16
 ];
 
 // Joint connections for skeleton visualization
