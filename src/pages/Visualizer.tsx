@@ -18,7 +18,7 @@ const Visualizer = () => {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [currentView, setCurrentView] = useState<'side' | 'catcher' | 'free'>('side');
   const [motionPhase, setMotionPhase] = useState<'windup' | 'stride' | 'acceleration' | 'release' | 'follow-through'>('windup');
-  const [selectedMetric, setSelectedMetric] = useState('pelvisVelocity');
+  const [selectedMetric, setSelectedMetric] = useState('pelvisTwistVelocity');
   const animationRef = useRef<number>();
   const lastFrameTimeRef = useRef(0);
 
@@ -89,20 +89,46 @@ const Visualizer = () => {
   // Generate real data for graphs from motion capture
   const generateRealData = (metric: string) => {
     if (!motionData) return [];
-    return motionData.frames.map((frame, index) => ({
-      frame: index,
-      value: frame.baseballMetrics[metric] || 0
-    }));
+    
+    return motionData.frames.map(frame => {
+      let value = 0;
+      switch (metric) {
+        case 'pelvisTwistVelocity':
+          value = frame.baseballMetrics.pelvisTwistVelocity;
+          break;
+        case 'shoulderTwistVelocity':
+          value = frame.baseballMetrics.shoulderTwistVelocity;
+          break;
+        case 'shoulderExternalRotation':
+          value = frame.baseballMetrics.shoulderExternalRotation;
+          break;
+        case 'trunkSeparation':
+          value = frame.baseballMetrics.trunkSeparation;
+          break;
+        default:
+          value = 0;
+      }
+      
+      return {
+        frame: frame.frameNumber,
+        value: value
+      };
+    });
   };
 
   const getMetricInfo = (metric: string) => {
-    const metrics = {
-      pelvisVelocity: { label: 'Pelvis Velocity', unit: 'm/s', color: 'hsl(var(--primary))' },
-      trunkVelocity: { label: 'Trunk Velocity', unit: 'm/s', color: 'hsl(var(--secondary))' },
-      elbowTorque: { label: 'Elbow Torque', unit: 'Nm', color: 'hsl(var(--accent))' },
-      shoulderTorque: { label: 'Shoulder Torque', unit: 'Nm', color: 'hsl(180 100% 70%)' }
-    };
-    return metrics[metric] || metrics.pelvisVelocity;
+    switch (metric) {
+      case 'pelvisTwistVelocity':
+        return { label: 'Pelvis Twist Velocity', unit: '°/s', color: '#3b82f6' };
+      case 'shoulderTwistVelocity':
+        return { label: 'Shoulder Twist Velocity', unit: '°/s', color: '#10b981' };
+      case 'shoulderExternalRotation':
+        return { label: 'Shoulder External Rotation', unit: '°', color: '#f59e0b' };
+      case 'trunkSeparation':
+        return { label: 'Trunk Separation', unit: '°', color: '#ef4444' };
+      default:
+        return { label: 'Unknown', unit: '', color: '#6b7280' };
+    }
   };
 
   if (!motionData) {
@@ -153,10 +179,10 @@ const Visualizer = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-popover backdrop-blur-xl border-card-border">
-                <SelectItem value="pelvisVelocity">Pelvis Velocity</SelectItem>
-                <SelectItem value="trunkVelocity">Trunk Velocity</SelectItem>
-                <SelectItem value="elbowTorque">Elbow Torque</SelectItem>
-                <SelectItem value="shoulderTorque">Shoulder Torque</SelectItem>
+                <SelectItem value="pelvisTwistVelocity">Pelvis Twist Velocity</SelectItem>
+                <SelectItem value="shoulderTwistVelocity">Shoulder Twist Velocity</SelectItem>
+                <SelectItem value="shoulderExternalRotation">Shoulder External Rotation</SelectItem>
+                <SelectItem value="trunkSeparation">Trunk Separation</SelectItem>
               </SelectContent>
             </Select>
 

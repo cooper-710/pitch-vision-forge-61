@@ -16,6 +16,10 @@ export interface BaseballMetric {
   trunkVelocity: number;
   elbowTorque: number;
   shoulderTorque: number;
+  pelvisTwistVelocity: number;    // degrees/sec
+  shoulderTwistVelocity: number;  // degrees/sec
+  shoulderExternalRotation: number; // degrees
+  trunkSeparation: number;        // degrees
   timestamp: number;
 }
 
@@ -79,6 +83,74 @@ export const BONE_CONNECTIONS = [
   ['L_Knee', 'L_Ankle'],
   ['L_Ankle', 'L_Foot']
 ];
+
+// Utility functions for biomechanics calculations
+class BiomechanicsCalculator {
+  static quaternionToEuler(q: JointRotation): { x: number; y: number; z: number } {
+    // Convert quaternion to Euler angles (in radians)
+    const { x, y, z, w } = q;
+    
+    // Roll (x-axis rotation)
+    const sinr_cosp = 2 * (w * x + y * z);
+    const cosr_cosp = 1 - 2 * (x * x + y * y);
+    const roll = Math.atan2(sinr_cosp, cosr_cosp);
+    
+    // Pitch (y-axis rotation)
+    const sinp = 2 * (w * y - z * x);
+    const pitch = Math.abs(sinp) >= 1 ? Math.sign(sinp) * Math.PI / 2 : Math.asin(sinp);
+    
+    // Yaw (z-axis rotation)
+    const siny_cosp = 2 * (w * z + x * y);
+    const cosy_cosp = 1 - 2 * (y * y + z * z);
+    const yaw = Math.atan2(siny_cosp, cosy_cosp);
+    
+    return { x: roll, y: pitch, z: yaw };
+  }
+  
+  static calculateTwistVelocity(currentRot: JointRotation, prevRot: JointRotation | null, deltaTime: number): number {
+    if (!prevRot) return 0;
+    
+    const currentEuler = this.quaternionToEuler(currentRot);
+    const prevEuler = this.quaternionToEuler(prevRot);
+    
+    // Calculate Y-axis rotation velocity (twist around vertical axis)
+    let deltaY = currentEuler.y - prevEuler.y;
+    
+    // Handle angle wrap-around
+    if (deltaY > Math.PI) deltaY -= 2 * Math.PI;
+    if (deltaY < -Math.PI) deltaY += 2 * Math.PI;
+    
+    // Convert to degrees per second
+    return (deltaY / deltaTime) * (180 / Math.PI);
+  }
+  
+  static calculateExternalRotation(shoulderRot: JointRotation, trunkRot: JointRotation): number {
+    const shoulderEuler = this.quaternionToEuler(shoulderRot);
+    const trunkEuler = this.quaternionToEuler(trunkRot);
+    
+    // External rotation is the difference in Z-axis rotation
+    let externalRot = shoulderEuler.z - trunkEuler.z;
+    
+    // Normalize to 0-360 degrees
+    externalRot = externalRot * (180 / Math.PI);
+    if (externalRot < 0) externalRot += 360;
+    
+    return externalRot;
+  }
+  
+  static calculateTrunkSeparation(pelvisRot: JointRotation, neckRot: JointRotation): number {
+    const pelvisEuler = this.quaternionToEuler(pelvisRot);
+    const neckEuler = this.quaternionToEuler(neckRot);
+    
+    // Trunk separation is the difference in Y-axis rotation (twist)
+    let separation = Math.abs(neckEuler.y - pelvisEuler.y);
+    
+    // Convert to degrees
+    separation = separation * (180 / Math.PI);
+    
+    return Math.min(separation, 180); // Cap at 180 degrees
+  }
+}
 
 export class DataParser {
   static parseJointCenters(fileContent: string): { [frameNumber: number]: { [jointName: string]: JointCenter } } {
@@ -167,7 +239,61 @@ export class DataParser {
           trunkVelocity: values[1] || 0,
           elbowTorque: values[2] || 0,
           shoulderTorque: values[3] || 0,
+          pelvisTwistVelocity: 0,
+          shoulderTwistVelocity: 0,
+          shoulderExternalRotation: 0,
+          trunkSeparation: 0,
           timestamp: index / 300 // 300 Hz
+        };
+      }
+    });
+    
+    return result;
+  }
+
+  static calculateBiomechanics(
+    jointRotations: { [frameNumber: number]: { [jointName: string]: JointRotation } }
+  ): { [frameNumber: number]: BaseballMetric } {
+    const frameNumbers = Object.keys(jointRotations).map(Number).sort((a, b) => a - b);
+    const result: { [frameNumber: number]: BaseballMetric } = {};
+    const deltaTime = 1 / 300; // 300 Hz sampling rate
+    
+    frameNumbers.forEach((frameNumber, index) => {
+      const currentRotations = jointRotations[frameNumber];
+      const prevRotations = index > 0 ? jointRotations[frameNumbers[index - 1]] : null;
+      
+      if (currentRotations) {
+        const pelvisRot = currentRotations['Pelvis'];
+        const neckRot = currentRotations['Neck'];
+        const shoulderRot = currentRotations['R_Shoulder']; // Right shoulder for throwing
+        
+        // Calculate biomechanics metrics
+        const pelvisTwistVel = pelvisRot && prevRotations?.['Pelvis'] 
+          ? BiomechanicsCalculator.calculateTwistVelocity(pelvisRot, prevRotations['Pelvis'], deltaTime)
+          : 0;
+          
+        const shoulderTwistVel = shoulderRot && prevRotations?.['R_Shoulder']
+          ? BiomechanicsCalculator.calculateTwistVelocity(shoulderRot, prevRotations['R_Shoulder'], deltaTime)
+          : 0;
+          
+        const shoulderExtRot = shoulderRot && neckRot
+          ? BiomechanicsCalculator.calculateExternalRotation(shoulderRot, neckRot)
+          : 0;
+          
+        const trunkSep = pelvisRot && neckRot
+          ? BiomechanicsCalculator.calculateTrunkSeparation(pelvisRot, neckRot)
+          : 0;
+        
+        result[frameNumber] = {
+          pelvisVelocity: Math.abs(pelvisTwistVel) * 0.5, // Scale for legacy compatibility
+          trunkVelocity: Math.abs(shoulderTwistVel) * 0.3,
+          elbowTorque: Math.abs(shoulderExtRot) * 0.1,
+          shoulderTorque: trunkSep * 0.05,
+          pelvisTwistVelocity: pelvisTwistVel,
+          shoulderTwistVelocity: shoulderTwistVel,
+          shoulderExternalRotation: shoulderExtRot,
+          trunkSeparation: trunkSep,
+          timestamp: frameNumber / 300
         };
       }
     });
@@ -178,21 +304,28 @@ export class DataParser {
   static combineData(
     jointCenters: { [frameNumber: number]: { [jointName: string]: JointCenter } },
     jointRotations: { [frameNumber: number]: { [jointName: string]: JointRotation } },
-    baseballMetrics: { [frameNumber: number]: BaseballMetric }
+    baseballMetrics?: { [frameNumber: number]: BaseballMetric }
   ): MotionData {
     const frameNumbers = Object.keys(jointCenters).map(Number).sort((a, b) => a - b);
     const frames: FrameData[] = [];
+    
+    // Calculate biomechanics from joint rotations if no metrics provided
+    const calculatedMetrics = baseballMetrics || this.calculateBiomechanics(jointRotations);
     
     frameNumbers.forEach(frameNumber => {
       frames.push({
         frameNumber,
         jointCenters: jointCenters[frameNumber] || {},
         jointRotations: jointRotations[frameNumber] || {},
-        baseballMetrics: baseballMetrics[frameNumber] || {
+        baseballMetrics: calculatedMetrics[frameNumber] || {
           pelvisVelocity: 0,
           trunkVelocity: 0,
           elbowTorque: 0,
           shoulderTorque: 0,
+          pelvisTwistVelocity: 0,
+          shoulderTwistVelocity: 0,
+          shoulderExternalRotation: 0,
+          trunkSeparation: 0,
           timestamp: frameNumber / 300
         }
       });
