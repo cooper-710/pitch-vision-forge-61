@@ -12,7 +12,7 @@ interface MotionViewer3DProps {
 
 /* ---- GLTF Skeleton Component ---- */
 function AnatomicalSkeleton({ frameData }: { frameData: FrameData }) {
-  const { scene } = useGLTF('/models/scene.gltf'); // load GLTF skeleton
+  const { scene } = useGLTF('/scene.gltf'); // load GLTF skeleton
   const skeletonRef = useRef<THREE.Group>(null);
 
   // Map bone names to mocap joint names here
