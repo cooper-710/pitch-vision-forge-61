@@ -1,8 +1,8 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Grid, Text, Html } from '@react-three/drei';
+import { OrbitControls, Grid, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { MotionData, FrameData, BONE_CONNECTIONS, JOINT_NAMES } from '@/utils/dataParser';
+import { MotionData, FrameData, BONE_CONNECTIONS } from '@/utils/dataParser';
 
 interface MotionViewer3DProps {
   motionData: MotionData;
@@ -13,103 +13,65 @@ interface SkeletonProps {
   frameData: FrameData;
 }
 
-// Professional Motion Capture Joint Marker
-function MocapJoint({ 
-  position, 
-  jointName, 
-  isKeyJoint = false, 
-  isThrowingArm = false,
-  showLabel = false 
-}: { 
+function Joint({ position, isKeyJoint = false, isThrowingArm = false }: { 
   position: [number, number, number], 
-  jointName: string,
   isKeyJoint?: boolean,
-  isThrowingArm?: boolean,
-  showLabel?: boolean
+  isThrowingArm?: boolean 
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
-  const glowRef = useRef<THREE.Mesh>(null);
   
   useFrame((state) => {
     if (meshRef.current) {
       const time = state.clock.getElapsedTime();
-      // Subtle professional pulse for key joints
-      if (isKeyJoint) {
-        const pulse = Math.sin(time * 2) * 0.1 + 0.9;
-        meshRef.current.scale.setScalar(pulse);
-      }
+      const baseColor = isThrowingArm ? '#ff6600' : '#00ffff';
+      meshRef.current.material = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(baseColor).lerp(
+          new THREE.Color('#ffffff'), 
+          Math.sin(time * 4) * 0.3 + 0.3
+        ),
+        transparent: true,
+        opacity: 0.9
+      });
     }
   });
 
-  // Professional mocap marker colors
-  const getMarkerColor = () => {
-    if (isThrowingArm) return '#FF4444'; // Red for throwing arm
-    if (isKeyJoint) return '#00FFAA';    // Bright green for key joints
-    return '#00AAFF';                    // Blue for standard joints
-  };
-
-  const markerColor = getMarkerColor();
-  const markerSize = isKeyJoint ? 0.025 : 0.018; // Precise marker sizes
+  const size = isKeyJoint ? 0.045 : 0.035; // Larger joints
+  const glowSize = size * 2.5; // Stronger glow
+  const baseColor = isThrowingArm ? '#ff6600' : '#00ffff';
 
   return (
-    <group position={position}>
-      {/* Core marker - solid sphere with professional materials */}
-      <mesh ref={meshRef}>
-        <sphereGeometry args={[markerSize, 16, 16]} />
-        <meshStandardMaterial 
-          color={markerColor}
-          metalness={0.1}
-          roughness={0.2}
-          emissive={markerColor}
-          emissiveIntensity={0.3}
-        />
-      </mesh>
-      
-      {/* Inner glow - subtle professional glow */}
-      <mesh ref={glowRef} scale={[1.8, 1.8, 1.8]}>
-        <sphereGeometry args={[markerSize, 12, 12]} />
+    <mesh ref={meshRef} position={position}>
+      <sphereGeometry args={[size, 20, 20]} />
+      <meshBasicMaterial color={baseColor} transparent opacity={0.9} />
+      {/* Enhanced glow effect */}
+      <mesh scale={[2.5, 2.5, 2.5]}>
+        <sphereGeometry args={[size, 12, 12]} />
         <meshBasicMaterial 
-          color={markerColor}
+          color={baseColor} 
           transparent 
-          opacity={0.15}
+          opacity={0.3} 
           blending={THREE.AdditiveBlending}
         />
       </mesh>
-      
-      {/* Outer professional halo */}
-      <mesh scale={[3, 3, 3]}>
-        <sphereGeometry args={[markerSize, 8, 8]} />
+      {/* Outer glow ring */}
+      <mesh scale={[4, 4, 4]}>
+        <sphereGeometry args={[size, 8, 8]} />
         <meshBasicMaterial 
-          color={markerColor}
+          color={baseColor} 
           transparent 
-          opacity={0.05}
+          opacity={0.1} 
           blending={THREE.AdditiveBlending}
         />
       </mesh>
-      
-      {/* Joint label for technical view */}
-      {showLabel && (
-        <Html position={[0, markerSize + 0.05, 0]} center>
-          <div className="text-xs font-mono text-primary-foreground bg-background/80 px-1 rounded">
-            {jointName}
-          </div>
-        </Html>
-      )}
-    </group>
+    </mesh>
   );
 }
 
-// Professional Motion Capture Bone Segment
-function MocapBone({ 
-  start, 
-  end, 
-  boneType = 'standard',
-  thickness = 0.008
-}: { 
+function Bone({ start, end, isUpperBody = false, isThrowingArm = false }: { 
   start: [number, number, number], 
   end: [number, number, number],
-  boneType?: 'spine' | 'throwing-arm' | 'support-arm' | 'leg' | 'standard',
-  thickness?: number
+  isUpperBody?: boolean,
+  isThrowingArm?: boolean 
 }) {
   const direction = new THREE.Vector3(...end).sub(new THREE.Vector3(...start));
   const length = direction.length();
@@ -119,47 +81,32 @@ function MocapBone({
   const quaternion = new THREE.Quaternion();
   quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
 
-  // Professional bone colors and properties
-  const getBoneProps = () => {
-    switch (boneType) {
-      case 'spine':
-        return { color: '#FFAA00', thickness: thickness * 1.5, opacity: 0.9 };
-      case 'throwing-arm':
-        return { color: '#FF4444', thickness: thickness * 1.3, opacity: 0.9 };
-      case 'support-arm':
-        return { color: '#4488FF', thickness: thickness * 1.1, opacity: 0.85 };
-      case 'leg':
-        return { color: '#88FF44', thickness: thickness * 1.2, opacity: 0.85 };
-      default:
-        return { color: '#00AAFF', thickness: thickness, opacity: 0.8 };
-    }
-  };
-
-  const { color, thickness: boneThickness, opacity } = getBoneProps();
+  const thickness = 0.015; // Thicker bones
+  const color = isThrowingArm ? '#ff6600' : isUpperBody ? '#0099ff' : '#0066cc';
 
   return (
     <group position={center.toArray()} quaternion={quaternion.toArray()}>
-      {/* Main bone segment */}
       <mesh>
-        <cylinderGeometry args={[boneThickness, boneThickness, length, 8]} />
-        <meshStandardMaterial 
-          color={color}
-          metalness={0.2}
-          roughness={0.3}
-          emissive={color}
-          emissiveIntensity={0.1}
-          transparent
-          opacity={opacity}
+        <cylinderGeometry args={[thickness, thickness, length, 12]} />
+        <meshBasicMaterial color={color} transparent opacity={0.8} />
+      </mesh>
+      {/* Enhanced glow effect for bone */}
+      <mesh scale={[2.5, 1, 2.5]}>
+        <cylinderGeometry args={[thickness, thickness, length, 6]} />
+        <meshBasicMaterial 
+          color={color} 
+          transparent 
+          opacity={0.2} 
+          blending={THREE.AdditiveBlending}
         />
       </mesh>
-      
-      {/* Subtle bone glow */}
-      <mesh scale={[2, 1, 2]}>
-        <cylinderGeometry args={[boneThickness, boneThickness, length, 6]} />
+      {/* Outer glow */}
+      <mesh scale={[4, 1, 4]}>
+        <cylinderGeometry args={[thickness, thickness, length, 4]} />
         <meshBasicMaterial 
-          color={color}
+          color={color} 
           transparent 
-          opacity={0.1}
+          opacity={0.05} 
           blending={THREE.AdditiveBlending}
         />
       </mesh>
@@ -167,106 +114,35 @@ function MocapBone({
   );
 }
 
-// Professional Coordinate System Reference
-function CoordinateSystem() {
-  const axisLength = 0.5;
-  const axisThickness = 0.004;
-  
-  return (
-    <group position={[0, 0, 0]}>
-      {/* X-axis - Red */}
-      <mesh position={[axisLength/2, 0, 0]} rotation={[0, 0, -Math.PI/2]}>
-        <cylinderGeometry args={[axisThickness, axisThickness, axisLength, 8]} />
-        <meshBasicMaterial color="#FF0000" />
-      </mesh>
-      <mesh position={[axisLength, 0, 0]}>
-        <coneGeometry args={[axisThickness * 3, axisThickness * 8, 8]} />
-        <meshBasicMaterial color="#FF0000" />
-      </mesh>
-      
-      {/* Y-axis - Green */}
-      <mesh position={[0, axisLength/2, 0]}>
-        <cylinderGeometry args={[axisThickness, axisThickness, axisLength, 8]} />
-        <meshBasicMaterial color="#00FF00" />
-      </mesh>
-      <mesh position={[0, axisLength, 0]}>
-        <coneGeometry args={[axisThickness * 3, axisThickness * 8, 8]} />
-        <meshBasicMaterial color="#00FF00" />
-      </mesh>
-      
-      {/* Z-axis - Blue */}
-      <mesh position={[0, 0, axisLength/2]} rotation={[Math.PI/2, 0, 0]}>
-        <cylinderGeometry args={[axisThickness, axisThickness, axisLength, 8]} />
-        <meshBasicMaterial color="#0000FF" />
-      </mesh>
-      <mesh position={[0, 0, axisLength]} rotation={[Math.PI/2, 0, 0]}>
-        <coneGeometry args={[axisThickness * 3, axisThickness * 8, 8]} />
-        <meshBasicMaterial color="#0000FF" />
-      </mesh>
-      
-      {/* Axis labels */}
-      <Text position={[axisLength + 0.1, 0, 0]} fontSize={0.05} color="#FF0000">X</Text>
-      <Text position={[0, axisLength + 0.1, 0]} fontSize={0.05} color="#00FF00">Y</Text>
-      <Text position={[0, 0, axisLength + 0.1]} fontSize={0.05} color="#0000FF">Z</Text>
-    </group>
-  );
-}
-
-// Professional Motion Capture Skeleton
-function MocapSkeleton({ frameData }: SkeletonProps) {
+function Skeleton({ frameData }: SkeletonProps) {
   const joints = frameData.jointCenters;
-  
-  // Define joint categories for professional rendering
-  const jointCategories = {
-    key: ['Head', 'Neck', 'Pelvis', 'R_Shoulder', 'R_Elbow', 'R_Wrist'],
-    throwingArm: ['R_Shoulder', 'R_Elbow', 'R_Wrist'],
-    supportArm: ['L_Shoulder', 'L_Elbow', 'L_Wrist'],
-    spine: ['Head', 'Neck', 'Pelvis'],
-    legs: ['R_Hip', 'R_Knee', 'R_Ankle', 'R_Foot', 'L_Hip', 'L_Knee', 'L_Ankle', 'L_Foot']
-  };
+  const keyJoints = ['R_Shoulder', 'R_Elbow', 'R_Wrist', 'Pelvis', 'Head'];
+  const throwingArmJoints = ['R_Shoulder', 'R_Elbow', 'R_Wrist'];
+  const upperBodyJoints = ['Spine', 'Neck', 'Head', 'L_Shoulder', 'L_Elbow', 'L_Wrist', 'R_Shoulder', 'R_Elbow', 'R_Wrist'];
 
-  // Mirror the skeleton horizontally for right-handed pitcher visualization
+  // Mirror the skeleton horizontally for right-handed pitcher
   const mirrorPosition = (pos: { x: number; y: number; z: number }) => ({
-    x: -pos.x, // Mirror X axis for proper right-hand orientation
+    x: -pos.x, // Mirror X axis
     y: pos.y,  // Keep Y (vertical)
-    z: pos.z   // Keep Z (depth)
+    z: pos.z   // Keep Z (forward/back)
   });
-
-  // Determine bone type for professional rendering
-  const getBoneType = (startJoint: string, endJoint: string) => {
-    if (jointCategories.spine.includes(startJoint) && jointCategories.spine.includes(endJoint)) {
-      return 'spine';
-    }
-    if (jointCategories.throwingArm.includes(startJoint) || jointCategories.throwingArm.includes(endJoint)) {
-      return 'throwing-arm';
-    }
-    if (jointCategories.supportArm.includes(startJoint) || jointCategories.supportArm.includes(endJoint)) {
-      return 'support-arm';
-    }
-    if (jointCategories.legs.includes(startJoint) || jointCategories.legs.includes(endJoint)) {
-      return 'leg';
-    }
-    return 'standard';
-  };
 
   return (
     <group>
-      {/* Render professional mocap joints */}
+      {/* Render joints */}
       {Object.entries(joints).map(([jointName, position]) => {
         const mirroredPos = mirrorPosition(position);
         return (
-          <MocapJoint
+          <Joint
             key={jointName}
             position={[mirroredPos.x, mirroredPos.y, mirroredPos.z]}
-            jointName={jointName}
-            isKeyJoint={jointCategories.key.includes(jointName)}
-            isThrowingArm={jointCategories.throwingArm.includes(jointName)}
-            showLabel={false} // Can be toggled for technical view
+            isKeyJoint={keyJoints.includes(jointName)}
+            isThrowingArm={throwingArmJoints.includes(jointName)}
           />
         );
       })}
       
-      {/* Render professional bone segments */}
+      {/* Render bones */}
       {BONE_CONNECTIONS.map(([startJoint, endJoint], index) => {
         const startPos = joints[startJoint];
         const endPos = joints[endJoint];
@@ -274,14 +150,16 @@ function MocapSkeleton({ frameData }: SkeletonProps) {
         if (startPos && endPos) {
           const mirroredStart = mirrorPosition(startPos);
           const mirroredEnd = mirrorPosition(endPos);
-          const boneType = getBoneType(startJoint, endJoint);
+          const isUpperBody = upperBodyJoints.includes(startJoint) || upperBodyJoints.includes(endJoint);
+          const isThrowingArm = throwingArmJoints.includes(startJoint) || throwingArmJoints.includes(endJoint);
           
           return (
-            <MocapBone
+            <Bone
               key={`${startJoint}-${endJoint}-${index}`}
               start={[mirroredStart.x, mirroredStart.y, mirroredStart.z]}
               end={[mirroredEnd.x, mirroredEnd.y, mirroredEnd.z]}
-              boneType={boneType}
+              isUpperBody={isUpperBody}
+              isThrowingArm={isThrowingArm}
             />
           );
         }
@@ -291,136 +169,73 @@ function MocapSkeleton({ frameData }: SkeletonProps) {
   );
 }
 
-// Professional Technical Overlay
-function TechnicalOverlay({ frameData, currentFrame }: { frameData: FrameData; currentFrame: number }) {
+function MetricOverlay({ frameData }: { frameData: FrameData }) {
   const metrics = frameData.baseballMetrics;
   
   return (
-    <group position={[2.5, 1.5, 0]}>
-      {/* Technical frame info */}
+    <group position={[2, 1, 0]}>
       <Text
-        position={[0, 0.8, 0]}
-        fontSize={0.12}
-        color="#00FFAA"
-        anchorX="left"
-        anchorY="middle"
-        font="/fonts/mono"
-      >
-        {`FRAME: ${currentFrame.toString().padStart(4, '0')}`}
-      </Text>
-      
-      {/* Velocity metrics */}
-      <Text
-        position={[0, 0.6, 0]}
-        fontSize={0.11}
-        color="#00AAFF"
+        position={[0, 0.5, 0]}
+        fontSize={0.15}
+        color="#00ffff"
         anchorX="left"
         anchorY="middle"
       >
-        {`PELVIS VEL: ${metrics.pelvisVelocity.toFixed(2)} m/s`}
+        {`Pelvis Velocity: ${metrics.pelvisVelocity.toFixed(1)} m/s`}
       </Text>
-      
       <Text
-        position={[0, 0.45, 0]}
-        fontSize={0.11}
-        color="#0088FF"
+        position={[0, 0.3, 0]}
+        fontSize={0.15}
+        color="#0080ff"
         anchorX="left"
         anchorY="middle"
       >
-        {`TRUNK VEL: ${metrics.trunkVelocity.toFixed(2)} m/s`}
+        {`Trunk Velocity: ${metrics.trunkVelocity.toFixed(1)} m/s`}
       </Text>
-      
-      {/* Torque metrics */}
-      <Text
-        position={[0, 0.25, 0]}
-        fontSize={0.11}
-        color="#FF4444"
-        anchorX="left"
-        anchorY="middle"
-      >
-        {`ELBOW TRQ: ${metrics.elbowTorque.toFixed(1)} Nm`}
-      </Text>
-      
       <Text
         position={[0, 0.1, 0]}
-        fontSize={0.11}
-        color="#FF6666"
+        fontSize={0.15}
+        color="#ff6600"
         anchorX="left"
         anchorY="middle"
       >
-        {`SHOULDER TRQ: ${metrics.shoulderTorque.toFixed(1)} Nm`}
+        {`Elbow Torque: ${metrics.elbowTorque.toFixed(1)} Nm`}
       </Text>
-      
-      {/* Professional markers legend */}
-      <group position={[0, -0.2, 0]}>
-        <Text
-          position={[0, 0.1, 0]}
-          fontSize={0.08}
-          color="#FFFFFF"
-          anchorX="left"
-          anchorY="middle"
-        >
-          MARKERS:
-        </Text>
-        <Text
-          position={[0, -0.05, 0]}
-          fontSize={0.07}
-          color="#FF4444"
-          anchorX="left"
-          anchorY="middle"
-        >
-          RED: Throwing Arm
-        </Text>
-        <Text
-          position={[0, -0.15, 0]}
-          fontSize={0.07}
-          color="#00FFAA"
-          anchorX="left"
-          anchorY="middle"
-        >
-          GREEN: Key Joints
-        </Text>
-        <Text
-          position={[0, -0.25, 0]}
-          fontSize={0.07}
-          color="#00AAFF"
-          anchorX="left"
-          anchorY="middle"
-        >
-          BLUE: Standard
-        </Text>
-      </group>
+      <Text
+        position={[0, -0.1, 0]}
+        fontSize={0.15}
+        color="#ff3300"
+        anchorX="left"
+        anchorY="middle"
+      >
+        {`Shoulder Torque: ${metrics.shoulderTorque.toFixed(1)} Nm`}
+      </Text>
     </group>
   );
 }
 
-// Professional Scene Setup
-function ProfessionalScene({ motionData, currentFrame, cameraView }: MotionViewer3DProps & { cameraView: string }) {
+function Scene({ motionData, currentFrame, cameraView }: MotionViewer3DProps & { cameraView: string }) {
   const frameData = motionData.frames[currentFrame] || motionData.frames[0];
   const controlsRef = useRef<any>();
   
-  // Professional camera positioning
+  // Camera positioning based on view
   useEffect(() => {
     if (controlsRef.current) {
       const controls = controlsRef.current;
       
       switch (cameraView) {
         case 'side':
-          controls.object.position.set(4, 1.5, 0);
-          controls.target.set(0, 1, 0);
+          controls.object.position.set(6, 2, 0);
+          controls.target.set(0, 1.2, 0);
           break;
         case 'catcher':
-          controls.object.position.set(0, 1.5, 4);
-          controls.target.set(0, 1, 0);
-          break;
-        case 'pitcher':
-          controls.object.position.set(0, 1.5, -4);
-          controls.target.set(0, 1, 0);
+          controls.object.position.set(0, 2, 6);
+          controls.target.set(0, 1.2, 0);
           break;
         case 'free':
         default:
-          controls.object.position.set(3, 2, 3);
-          controls.target.set(0, 1, 0);
+          controls.object.position.set(4, 3, 4);
+          controls.target.set(0, 1.2, 0);
           break;
       }
       controls.update();
@@ -429,116 +244,80 @@ function ProfessionalScene({ motionData, currentFrame, cameraView }: MotionViewe
   
   return (
     <>
-      {/* Professional studio lighting */}
-      <ambientLight intensity={0.3} color="#0A0A0A" />
-      <directionalLight 
-        position={[10, 10, 5]} 
-        intensity={0.8} 
-        color="#FFFFFF"
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-      />
-      <pointLight position={[5, 3, 5]} intensity={0.4} color="#00AAFF" />
-      <pointLight position={[-5, 3, -5]} intensity={0.3} color="#0066AA" />
+      {/* Enhanced Lighting */}
+      <ambientLight intensity={0.4} color="#001133" />
+      <pointLight position={[8, 8, 8]} intensity={0.6} color="#00ccff" />
+      <pointLight position={[-8, -8, -8]} intensity={0.4} color="#0066cc" />
+      <pointLight position={[0, 10, 0]} intensity={0.3} color="#ffffff" />
       
-      {/* Professional laboratory grid */}
+      {/* Enhanced Grid with ground reference */}
       <Grid
-        args={[20, 20]}
-        cellSize={0.2}
-        cellThickness={0.5}
-        cellColor="#003366"
-        sectionSize={1}
-        sectionThickness={1.2}
-        sectionColor="#0066AA"
-        fadeDistance={15}
+        args={[30, 30]}
+        cellSize={0.25}
+        cellThickness={0.3}
+        cellColor="#002244"
+        sectionSize={2}
+        sectionThickness={0.8}
+        sectionColor="#0044aa"
+        fadeDistance={20}
         fadeStrength={1}
         followCamera={false}
         infiniteGrid={false}
         position={[0, 0, 0]}
       />
       
-      {/* Professional ground reference plane */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-        <planeGeometry args={[10, 10]} />
-        <meshStandardMaterial 
+      {/* Ground plane for better reference */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
+        <planeGeometry args={[20, 20]} />
+        <meshBasicMaterial 
           color="#001122" 
           transparent 
-          opacity={0.1}
-          roughness={0.9}
-          metalness={0.1}
+          opacity={0.1} 
+          blending={THREE.AdditiveBlending}
         />
       </mesh>
       
-      {/* Coordinate system reference */}
-      <CoordinateSystem />
+      {/* Skeleton */}
+      <Skeleton frameData={frameData} />
       
-      {/* Professional motion capture skeleton */}
-      <MocapSkeleton frameData={frameData} />
+      {/* Metric overlay */}
+      <MetricOverlay frameData={frameData} />
       
-      {/* Technical data overlay */}
-      <TechnicalOverlay frameData={frameData} currentFrame={currentFrame} />
-      
-      {/* Professional camera controls */}
+      {/* Camera controls */}
       <OrbitControls
         ref={controlsRef}
         enablePan={true}
         enableZoom={true}
         enableRotate={true}
-        minDistance={1.5}
-        maxDistance={15}
-        target={[0, 1, 0]}
+        minDistance={2}
+        maxDistance={25}
+        target={[0, 1.2, 0]}
         enableDamping={true}
         dampingFactor={0.05}
-        rotateSpeed={0.5}
-        panSpeed={0.8}
-        zoomSpeed={0.6}
       />
     </>
   );
 }
 
-// Main Professional Motion Viewer Component
-export function MotionViewer3D({ 
-  motionData, 
-  currentFrame, 
-  cameraView = 'free' 
-}: MotionViewer3DProps & { cameraView?: string }) {
+export function MotionViewer3D({ motionData, currentFrame, cameraView = 'free' }: MotionViewer3DProps & { cameraView?: string }) {
   return (
-    <div className="w-full h-full bg-black rounded-lg overflow-hidden border border-primary/20 relative">
+    <div className="w-full h-full bg-background rounded-lg overflow-hidden border border-card-border">
       <Canvas
         camera={{ 
-          position: [3, 2, 3], 
-          fov: 60,
+          position: [4, 3, 4], 
+          fov: 65,
           near: 0.1,
-          far: 100
+          far: 1000
         }}
         gl={{ 
           antialias: true,
-          alpha: false,
-          powerPreference: "high-performance",
-          toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.2
+          alpha: true,
+          powerPreference: "high-performance"
         }}
         dpr={[1, 2]}
-        shadows
       >
-        <ProfessionalScene 
-          motionData={motionData} 
-          currentFrame={currentFrame} 
-          cameraView={cameraView} 
-        />
+        <Scene motionData={motionData} currentFrame={currentFrame} cameraView={cameraView} />
       </Canvas>
-      
-      {/* Professional frame counter overlay */}
-      <div className="absolute top-4 left-4 font-mono text-sm text-primary bg-black/80 px-2 py-1 rounded">
-        MOCAP FRAME: {currentFrame.toString().padStart(4, '0')} / {motionData.frames.length.toString().padStart(4, '0')}
-      </div>
-      
-      {/* Professional camera view indicator */}
-      <div className="absolute top-4 right-4 font-mono text-xs text-primary-foreground bg-black/80 px-2 py-1 rounded uppercase">
-        VIEW: {cameraView}
-      </div>
     </div>
   );
 }
