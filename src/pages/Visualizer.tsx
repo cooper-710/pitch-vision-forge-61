@@ -115,8 +115,9 @@ const Visualizer = () => {
       };
     });
 
-    // Log sample of actual calculated values for debugging
-    if (motionData.frames.length > 10) {
+    // Only log once to avoid console spam
+    const shouldLog = motionData.frames.length > 10 && currentFrame === 0;
+    if (shouldLog) {
       const sampleFrames = [0, Math.floor(motionData.frames.length/4), Math.floor(motionData.frames.length/2)];
       console.log(`[generateBiomechanicalData] ${metric} samples:`, 
         sampleFrames.map(i => ({
@@ -162,8 +163,10 @@ const Visualizer = () => {
   const minValue = Math.min(...graphData.map(d => d.value));
   let valueRange = maxValue - minValue;
   
-  // Debug logging
-  console.log(`Metric: ${selectedMetric}`, { maxValue, minValue, valueRange, sampleValues: graphData.slice(0, 5) });
+  // Only log debugging info once to avoid spam
+  if (currentFrame === 0) {
+    console.log(`Metric: ${selectedMetric}`, { maxValue, minValue, valueRange, sampleValues: graphData.slice(0, 5) });
+  }
   
   // Fix division by zero when all values are the same
   if (valueRange === 0 || valueRange < 0.001) {
