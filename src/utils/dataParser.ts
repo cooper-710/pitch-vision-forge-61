@@ -124,6 +124,19 @@ class BiomechanicsCalculator {
     return (deltaY / deltaTime) * (180 / Math.PI);
   }
   
+  static calculateShoulderExternalRotation(shoulderRot: JointRotation, trunkRot: JointRotation): number {
+    const shoulderEuler = this.quaternionToEuler(shoulderRot);
+    const trunkEuler = this.quaternionToEuler(trunkRot);
+    
+    // External rotation is the X-axis rotation of shoulder relative to trunk
+    let externalRot = shoulderEuler.x - trunkEuler.x;
+    
+    // Convert to degrees
+    externalRot = externalRot * (180 / Math.PI);
+    
+    return externalRot;
+  }
+  
   static calculateExternalRotation(shoulderRot: JointRotation, trunkRot: JointRotation): number {
     const shoulderEuler = this.quaternionToEuler(shoulderRot);
     const trunkEuler = this.quaternionToEuler(trunkRot);
@@ -315,7 +328,7 @@ export class DataParser {
           : 0;
           
         const shoulderExtRot = shoulderRot && neckRot
-          ? BiomechanicsCalculator.calculateExternalRotation(shoulderRot, neckRot)
+          ? BiomechanicsCalculator.calculateShoulderExternalRotation(shoulderRot, neckRot)
           : 0;
           
         const trunkSep = pelvisRot && neckRot
@@ -330,10 +343,10 @@ export class DataParser {
         }
         
         result[frameNumber] = {
-          pelvisVelocity: Math.abs(pelvisTwistVel) * 0.5, // Scale for legacy compatibility
-          trunkVelocity: Math.abs(shoulderTwistVel) * 0.3,
-          elbowTorque: Math.abs(shoulderExtRot) * 0.1,
-          shoulderTorque: trunkSep * 0.05,
+          pelvisVelocity: Math.abs(pelvisTwistVel), // Direct twist velocity
+          trunkVelocity: Math.abs(shoulderTwistVel), // Direct twist velocity  
+          elbowTorque: Math.abs(shoulderExtRot),
+          shoulderTorque: trunkSep,
           pelvisTwistVelocity: pelvisTwistVel,
           shoulderTwistVelocity: shoulderTwistVel,
           shoulderExternalRotation: shoulderExtRot,

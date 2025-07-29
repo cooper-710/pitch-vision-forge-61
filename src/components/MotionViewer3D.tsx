@@ -116,9 +116,19 @@ function Bone({ start, end, isUpperBody = false, isThrowingArm = false }: {
 
 function Skeleton({ frameData }: SkeletonProps) {
   const joints = frameData.jointCenters;
+  const jointRotations = frameData.jointRotations;
   const keyJoints = ['R_Shoulder', 'R_Elbow', 'R_Wrist', 'Pelvis', 'Head'];
   const throwingArmJoints = ['R_Shoulder', 'R_Elbow', 'R_Wrist'];
   const upperBodyJoints = ['Spine', 'Neck', 'Head', 'L_Shoulder', 'L_Elbow', 'L_Wrist', 'R_Shoulder', 'R_Elbow', 'R_Wrist'];
+
+  // Apply joint rotations to skeleton if available
+  const applyRotation = (jointName: string) => {
+    const rotation = jointRotations[jointName];
+    if (rotation) {
+      return new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
+    }
+    return new THREE.Quaternion(0, 0, 0, 1);
+  };
 
   // Mirror the skeleton horizontally for right-handed pitcher
   const mirrorPosition = (pos: { x: number; y: number; z: number }) => ({
@@ -129,16 +139,22 @@ function Skeleton({ frameData }: SkeletonProps) {
 
   return (
     <group>
-      {/* Render joints */}
+      {/* Render joints with rotations */}
       {Object.entries(joints).map(([jointName, position]) => {
         const mirroredPos = mirrorPosition(position);
+        const rotation = applyRotation(jointName);
         return (
-          <Joint
+          <group 
             key={jointName}
             position={[mirroredPos.x, mirroredPos.y, mirroredPos.z]}
-            isKeyJoint={keyJoints.includes(jointName)}
-            isThrowingArm={throwingArmJoints.includes(jointName)}
-          />
+            quaternion={[rotation.x, rotation.y, rotation.z, rotation.w]}
+          >
+            <Joint
+              position={[0, 0, 0]}
+              isKeyJoint={keyJoints.includes(jointName)}
+              isThrowingArm={throwingArmJoints.includes(jointName)}
+            />
+          </group>
         );
       })}
       
@@ -175,40 +191,49 @@ function MetricOverlay({ frameData }: { frameData: FrameData }) {
   return (
     <group position={[2, 1, 0]}>
       <Text
-        position={[0, 0.5, 0]}
-        fontSize={0.15}
+        position={[0, 0.6, 0]}
+        fontSize={0.12}
         color="#00ffff"
         anchorX="left"
         anchorY="middle"
       >
-        {`Pelvis Velocity: ${metrics.pelvisVelocity.toFixed(1)} m/s`}
+        {`Pelvis Twist: ${metrics.pelvisTwistVelocity.toFixed(1)}°/s`}
       </Text>
       <Text
-        position={[0, 0.3, 0]}
-        fontSize={0.15}
+        position={[0, 0.4, 0]}
+        fontSize={0.12}
         color="#0080ff"
         anchorX="left"
         anchorY="middle"
       >
-        {`Trunk Velocity: ${metrics.trunkVelocity.toFixed(1)} m/s`}
+        {`Shoulder Twist: ${metrics.shoulderTwistVelocity.toFixed(1)}°/s`}
       </Text>
       <Text
-        position={[0, 0.1, 0]}
-        fontSize={0.15}
+        position={[0, 0.2, 0]}
+        fontSize={0.12}
         color="#ff6600"
         anchorX="left"
         anchorY="middle"
       >
-        {`Elbow Torque: ${metrics.elbowTorque.toFixed(1)} Nm`}
+        {`Shoulder Ext Rot: ${metrics.shoulderExternalRotation.toFixed(1)}°`}
       </Text>
       <Text
-        position={[0, -0.1, 0]}
-        fontSize={0.15}
+        position={[0, 0.0, 0]}
+        fontSize={0.12}
         color="#ff3300"
         anchorX="left"
         anchorY="middle"
       >
-        {`Shoulder Torque: ${metrics.shoulderTorque.toFixed(1)} Nm`}
+        {`Trunk Separation: ${metrics.trunkSeparation.toFixed(1)}°`}
+      </Text>
+      <Text
+        position={[0, -0.2, 0]}
+        fontSize={0.1}
+        color="#888888"
+        anchorX="left"
+        anchorY="middle"
+      >
+        {`Frame: ${frameData.frameNumber}`}
       </Text>
     </group>
   );
