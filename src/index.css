@@ -63,6 +63,7 @@ All colors MUST be HSL.
     /* Animations */
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-glow: all 0.2s ease-out;
+    --transition-float: transform 0.3s ease-out;
 
     --sidebar-background: 0 0% 98%;
 
@@ -127,5 +128,33 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer utilities {
+  /* Glassmorphism utilities */
+  .glassmorphism {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  }
+  
+  .glassmorphism-dark {
+    background: linear-gradient(135deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.1));
+    backdrop-filter: blur(15px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  }
+  
+  /* Floating animation */
+  .float-panel {
+    transform: translateZ(0);
+    transition: var(--transition-float);
+  }
+  
+  .float-panel:hover {
+    transform: translateY(-2px) translateZ(0);
+    box-shadow: var(--shadow-glow);
   }
 }
