@@ -5,7 +5,7 @@ import { MotionData } from '@/utils/dataParser';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ArrowLeft, Play, Pause, RotateCcw, Gauge, Activity, Target, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Play, Pause, RotateCcw, Gauge, Activity, Target, TrendingUp, User, User2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const Visualizer = () => {
@@ -19,6 +19,7 @@ const Visualizer = () => {
   const [currentView, setCurrentView] = useState<'side' | 'catcher' | 'free'>('side');
   const [motionPhase, setMotionPhase] = useState<'windup' | 'stride' | 'acceleration' | 'release' | 'follow-through'>('windup');
   const [selectedMetric, setSelectedMetric] = useState('pelvisTwistVelocity');
+  const [showRealisticSkeleton, setShowRealisticSkeleton] = useState(true);
   const animationRef = useRef<number>();
   const lastFrameTimeRef = useRef(0);
 
@@ -188,6 +189,7 @@ const Visualizer = () => {
           motionData={motionData}
           currentFrame={currentFrame}
           cameraView={currentView}
+          showRealisticSkeleton={showRealisticSkeleton}
         />
       </div>
 
@@ -487,6 +489,16 @@ const Visualizer = () => {
                 <SelectItem value="free">Free</SelectItem>
               </SelectContent>
             </Select>
+
+            <Button 
+              onClick={() => setShowRealisticSkeleton(!showRealisticSkeleton)}
+              variant="ghost" 
+              size="sm"
+              className="text-muted-foreground hover:text-foreground"
+              title={showRealisticSkeleton ? "Switch to Stick Figure" : "Switch to Realistic Skeleton"}
+            >
+              {showRealisticSkeleton ? <User className="h-4 w-4" /> : <User2 className="h-4 w-4" />}
+            </Button>
           </div>
         </CardContent>
       </Card>
