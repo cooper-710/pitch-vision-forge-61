@@ -90,77 +90,38 @@ class BiomechanicsCalculator {
     // Convert quaternion to Euler angles (in radians)
     const { x, y, z, w } = q;
     
-    // Normalize quaternion first
-    const magnitude = Math.sqrt(x*x + y*y + z*z + w*w);
-    if (magnitude < 0.001) return { x: 0, y: 0, z: 0 };
-    
-    const nx = x / magnitude;
-    const ny = y / magnitude;
-    const nz = z / magnitude;
-    const nw = w / magnitude;
-    
     // Roll (x-axis rotation)
-    const sinr_cosp = 2 * (nw * nx + ny * nz);
-    const cosr_cosp = 1 - 2 * (nx * nx + ny * ny);
+    const sinr_cosp = 2 * (w * x + y * z);
+    const cosr_cosp = 1 - 2 * (x * x + y * y);
     const roll = Math.atan2(sinr_cosp, cosr_cosp);
     
     // Pitch (y-axis rotation)
-    const sinp = 2 * (nw * ny - nz * nx);
+    const sinp = 2 * (w * y - z * x);
     const pitch = Math.abs(sinp) >= 1 ? Math.sign(sinp) * Math.PI / 2 : Math.asin(sinp);
     
-    // Yaw (z-axis rotation) - THIS IS KEY FOR TWIST CALCULATIONS
-    const siny_cosp = 2 * (nw * nz + nx * ny);
-    const cosy_cosp = 1 - 2 * (ny * ny + nz * nz);
+    // Yaw (z-axis rotation)
+    const siny_cosp = 2 * (w * z + x * y);
+    const cosy_cosp = 1 - 2 * (y * y + z * z);
     const yaw = Math.atan2(siny_cosp, cosy_cosp);
     
     return { x: roll, y: pitch, z: yaw };
   }
   
   static calculateTwistVelocity(currentRot: JointRotation, prevRot: JointRotation | null, deltaTime: number): number {
-    if (!prevRot || deltaTime <= 0) return 0;
+    if (!prevRot) return 0;
     
     const currentEuler = this.quaternionToEuler(currentRot);
     const prevEuler = this.quaternionToEuler(prevRot);
     
-    // Calculate Z-axis rotation velocity (yaw - twist around vertical axis)
-    let deltaYaw = currentEuler.z - prevEuler.z;
+    // Calculate Y-axis rotation velocity (twist around vertical axis)
+    let deltaY = currentEuler.y - prevEuler.y;
     
-    // Handle angle wrap-around (-PI to PI)
-    if (deltaYaw > Math.PI) deltaYaw -= 2 * Math.PI;
-    if (deltaYaw < -Math.PI) deltaYaw += 2 * Math.PI;
+    // Handle angle wrap-around
+    if (deltaY > Math.PI) deltaY -= 2 * Math.PI;
+    if (deltaY < -Math.PI) deltaY += 2 * Math.PI;
     
     // Convert to degrees per second
-    return (deltaYaw / deltaTime) * (180 / Math.PI);
-  }
-  
-  static calculateShoulderExternalRotation(shoulderRot: JointRotation): number {
-    const shoulderEuler = this.quaternionToEuler(shoulderRot);
-    
-    // External rotation is the X-axis rotation (abduction/adduction)
-    let externalRot = shoulderEuler.x * (180 / Math.PI);
-    
-    // Normalize to 0-180 degrees range for external rotation
-    externalRot = Math.abs(externalRot);
-    if (externalRot > 180) externalRot = 360 - externalRot;
-    
-    return externalRot;
-  }
-  
-  static calculateTrunkSeparation(pelvisRot: JointRotation, shoulderRot: JointRotation): number {
-    const pelvisEuler = this.quaternionToEuler(pelvisRot);
-    const shoulderEuler = this.quaternionToEuler(shoulderRot);
-    
-    // Trunk separation is the yaw difference between shoulder and pelvis
-    let separation = shoulderEuler.z - pelvisEuler.z;
-    
-    // Handle wrap-around
-    if (separation > Math.PI) separation -= 2 * Math.PI;
-    if (separation < -Math.PI) separation += 2 * Math.PI;
-    
-    // Convert to degrees
-    separation = separation * (180 / Math.PI);
-    
-    return Math.abs(separation); // Return absolute separation
+    return (deltaY / deltaTime) * (180 / Math.PI);
   }
   
   static calculateExternalRotation(shoulderRot: JointRotation, trunkRot: JointRotation): number {
@@ -177,6 +138,18 @@ class BiomechanicsCalculator {
     return externalRot;
   }
   
+  static calculateTrunkSeparation(pelvisRot: JointRotation, neckRot: JointRotation): number {
+    const pelvisEuler = this.quaternionToEuler(pelvisRot);
+    const neckEuler = this.quaternionToEuler(neckRot);
+    
+    // Trunk separation is the difference in Y-axis rotation (twist)
+    let separation = Math.abs(neckEuler.y - pelvisEuler.y);
+    
+    // Convert to degrees
+    separation = separation * (180 / Math.PI);
+    
+    return Math.min(separation, 180); // Cap at 180 degrees
+  }
 }
 
 export class DataParser {
@@ -247,17 +220,14 @@ export class DataParser {
             w: values[startIndex + 3] || 1
           };
           
-          // Validate and normalize quaternion
+          // Validate quaternion magnitude
           const magnitude = Math.sqrt(quat.x * quat.x + quat.y * quat.y + quat.z * quat.z + quat.w * quat.w);
-          if (magnitude < 0.001) {
+          if (magnitude < 0.1) {
             // Invalid quaternion, use identity
             quat.x = 0; quat.y = 0; quat.z = 0; quat.w = 1;
-          } else {
+          } else if (Math.abs(magnitude - 1.0) > 0.1) {
             // Normalize quaternion
-            quat.x /= magnitude; 
-            quat.y /= magnitude; 
-            quat.z /= magnitude; 
-            quat.w /= magnitude;
+            quat.x /= magnitude; quat.y /= magnitude; quat.z /= magnitude; quat.w /= magnitude;
           }
           
           result[frameNumber][jointName] = quat;
@@ -265,25 +235,14 @@ export class DataParser {
       }
     });
     
-    // Debug sample rotation data to verify parsing
+    // Debug first frame rotation data
     if (Object.keys(result).length > 0) {
       const firstFrame = result[0];
-      const midFrame = result[Math.floor(Object.keys(result).length / 2)];
-      console.log('[DataParser] Sample joint rotations:');
-      console.log('Frame 0 Pelvis:', firstFrame?.['Pelvis']);
-      console.log('Frame 0 R_Shoulder:', firstFrame?.['R_Shoulder']);
-      console.log('Mid-frame Pelvis:', midFrame?.['Pelvis']);
-      console.log('Mid-frame R_Shoulder:', midFrame?.['R_Shoulder']);
-      
-      // Test euler conversion on sample data
-      if (firstFrame?.['Pelvis']) {
-        const testEuler = BiomechanicsCalculator.quaternionToEuler(firstFrame['Pelvis']);
-        console.log('Sample Euler conversion (Pelvis frame 0):', {
-          roll: (testEuler.x * 180 / Math.PI).toFixed(2),
-          pitch: (testEuler.y * 180 / Math.PI).toFixed(2),
-          yaw: (testEuler.z * 180 / Math.PI).toFixed(2)
-        });
-      }
+      console.log('[DataParser] Sample joint rotations (frame 0):', {
+        Pelvis: firstFrame?.['Pelvis'],
+        R_Shoulder: firstFrame?.['R_Shoulder'],
+        Neck: firstFrame?.['Neck']
+      });
     }
     
     return result;
@@ -322,30 +281,10 @@ export class DataParser {
     const result: { [frameNumber: number]: BaseballMetric } = {};
     const deltaTime = 1 / 300; // 300 Hz sampling rate
     
-    console.log(`[BiomechanicsCalculator] Processing ${frameNumbers.length} frames for calculations`);
+    console.log(`[BiomechanicsCalculator] Processing ${frameNumbers.length} frames`);
     
-    // Check if we have actual rotation data or just identity quaternions
-    let hasValidRotationData = false;
-    for (let i = 0; i < Math.min(10, frameNumbers.length); i++) {
-      const frameNum = frameNumbers[i];
-      const rotations = jointRotations[frameNum];
-      const pelvis = rotations?.['Pelvis'];
-      const shoulder = rotations?.['R_Shoulder'];
-      
-      if (pelvis && (Math.abs(pelvis.x) > 0.01 || Math.abs(pelvis.y) > 0.01 || Math.abs(pelvis.z) > 0.01 || Math.abs(pelvis.w - 1) > 0.01) ||
-          shoulder && (Math.abs(shoulder.x) > 0.01 || Math.abs(shoulder.y) > 0.01 || Math.abs(shoulder.z) > 0.01 || Math.abs(shoulder.w - 1) > 0.01)) {
-        hasValidRotationData = true;
-        break;
-      }
-    }
-    
-    console.log(`[BiomechanicsCalculator] Has valid rotation data: ${hasValidRotationData}`);
-    
-    // If no valid rotation data, use fallback immediately
-    if (!hasValidRotationData) {
-      console.warn('[BiomechanicsCalculator] No valid rotation data found, using fallback');
-      return this.generateFallbackBiomechanics(frameNumbers);
-    }
+    let validCalculations = 0;
+    let totalCalculations = 0;
     
     frameNumbers.forEach((frameNumber, index) => {
       const currentRotations = jointRotations[frameNumber];
@@ -353,161 +292,68 @@ export class DataParser {
       
       if (currentRotations) {
         const pelvisRot = currentRotations['Pelvis'];
+        const neckRot = currentRotations['Neck'];
         const shoulderRot = currentRotations['R_Shoulder']; // Right shoulder for throwing
         
+        // Validate joint data exists
+        const hasValidData = pelvisRot && neckRot && shoulderRot;
+        if (!hasValidData && frameNumber === 0) {
+          console.warn('[BiomechanicsCalculator] Missing joint data:', {
+            pelvis: !!pelvisRot,
+            neck: !!neckRot,
+            shoulder: !!shoulderRot
+          });
+        }
+        
         // Calculate biomechanics metrics
-        let pelvisTwistVel = 0;
-        let shoulderTwistVel = 0;
-        let shoulderExtRot = 0;
-        let trunkSep = 0;
+        const pelvisTwistVel = pelvisRot && prevRotations?.['Pelvis'] 
+          ? BiomechanicsCalculator.calculateTwistVelocity(pelvisRot, prevRotations['Pelvis'], deltaTime)
+          : 0;
+          
+        const shoulderTwistVel = shoulderRot && prevRotations?.['R_Shoulder']
+          ? BiomechanicsCalculator.calculateTwistVelocity(shoulderRot, prevRotations['R_Shoulder'], deltaTime)
+          : 0;
+          
+        const shoulderExtRot = shoulderRot && neckRot
+          ? BiomechanicsCalculator.calculateExternalRotation(shoulderRot, neckRot)
+          : 0;
+          
+        const trunkSep = pelvisRot && neckRot
+          ? BiomechanicsCalculator.calculateTrunkSeparation(pelvisRot, neckRot)
+          : 0;
         
-        // Pelvis twist velocity calculation
-        if (pelvisRot && prevRotations?.['Pelvis']) {
-          const currentEuler = BiomechanicsCalculator.quaternionToEuler(pelvisRot);
-          const prevEuler = BiomechanicsCalculator.quaternionToEuler(prevRotations['Pelvis']);
-          
-          let deltaYaw = currentEuler.z - prevEuler.z;
-          if (deltaYaw > Math.PI) deltaYaw -= 2 * Math.PI;
-          if (deltaYaw < -Math.PI) deltaYaw += 2 * Math.PI;
-          
-          pelvisTwistVel = (deltaYaw / deltaTime) * (180 / Math.PI);
-        }
-        
-        // Shoulder twist velocity calculation  
-        if (shoulderRot && prevRotations?.['R_Shoulder']) {
-          const currentEuler = BiomechanicsCalculator.quaternionToEuler(shoulderRot);
-          const prevEuler = BiomechanicsCalculator.quaternionToEuler(prevRotations['R_Shoulder']);
-          
-          let deltaYaw = currentEuler.z - prevEuler.z;
-          if (deltaYaw > Math.PI) deltaYaw -= 2 * Math.PI;
-          if (deltaYaw < -Math.PI) deltaYaw += 2 * Math.PI;
-          
-          shoulderTwistVel = (deltaYaw / deltaTime) * (180 / Math.PI);
-        }
-        
-        // Shoulder external rotation (direct angle, not velocity)
-        if (shoulderRot) {
-          const shoulderEuler = BiomechanicsCalculator.quaternionToEuler(shoulderRot);
-          shoulderExtRot = Math.abs(shoulderEuler.x * (180 / Math.PI));
-          if (shoulderExtRot > 180) shoulderExtRot = 360 - shoulderExtRot;
-        }
-        
-        // Trunk separation (angle difference between shoulder and pelvis)
-        if (pelvisRot && shoulderRot) {
-          const pelvisEuler = BiomechanicsCalculator.quaternionToEuler(pelvisRot);
-          const shoulderEuler = BiomechanicsCalculator.quaternionToEuler(shoulderRot);
-          
-          let separation = shoulderEuler.z - pelvisEuler.z;
-          if (separation > Math.PI) separation -= 2 * Math.PI;
-          if (separation < -Math.PI) separation += 2 * Math.PI;
-          
-          trunkSep = Math.abs(separation * (180 / Math.PI));
+        // Track calculation validity
+        totalCalculations++;
+        if (Math.abs(pelvisTwistVel) > 0.1 || Math.abs(shoulderTwistVel) > 0.1 || 
+            Math.abs(shoulderExtRot) > 0.1 || Math.abs(trunkSep) > 0.1) {
+          validCalculations++;
         }
         
         result[frameNumber] = {
-          pelvisVelocity: Math.abs(pelvisTwistVel), 
-          trunkVelocity: Math.abs(shoulderTwistVel),  
-          elbowTorque: shoulderExtRot,
-          shoulderTorque: trunkSep,
+          pelvisVelocity: Math.abs(pelvisTwistVel) * 0.5, // Scale for legacy compatibility
+          trunkVelocity: Math.abs(shoulderTwistVel) * 0.3,
+          elbowTorque: Math.abs(shoulderExtRot) * 0.1,
+          shoulderTorque: trunkSep * 0.05,
           pelvisTwistVelocity: pelvisTwistVel,
           shoulderTwistVelocity: shoulderTwistVel,
           shoulderExternalRotation: shoulderExtRot,
           trunkSeparation: trunkSep,
           timestamp: frameNumber / 300
         };
+        
+        // Debug sample calculations
+        if (frameNumber === Math.floor(frameNumbers.length / 2)) {
+          console.log(`[BiomechanicsCalculator] Mid-sequence sample (frame ${frameNumber}):`, {
+            pelvisTwistVel: pelvisTwistVel.toFixed(2),
+            shoulderTwistVel: shoulderTwistVel.toFixed(2),
+            shoulderExtRot: shoulderExtRot.toFixed(2),
+            trunkSep: trunkSep.toFixed(2)
+          });
+        }
       }
     });
     
-    // Check if calculations produced meaningful results
-    const validFrames = frameNumbers.filter(fn => {
-      const metrics = result[fn];
-      return metrics && (
-        Math.abs(metrics.pelvisTwistVelocity) > 1.0 ||
-        Math.abs(metrics.shoulderTwistVelocity) > 1.0 ||
-        metrics.shoulderExternalRotation > 2.0 ||
-        metrics.trunkSeparation > 2.0
-      );
-    });
-    
-    console.log(`[BiomechanicsCalculator] Valid calculations: ${validFrames.length}/${frameNumbers.length} frames`);
-    
-    // If we have very few valid calculations, use fallback data
-    if (validFrames.length < frameNumbers.length * 0.1) {
-      console.warn('[BiomechanicsCalculator] Insufficient valid calculations, using fallback');
-      return this.generateFallbackBiomechanics(frameNumbers);
-    }
-    
-    return result;
-  }
-
-  static generateFallbackBiomechanics(frameNumbers: number[]): { [frameNumber: number]: BaseballMetric } {
-    console.log('[BiomechanicsCalculator] Generating fallback biomechanics data');
-    const result: { [frameNumber: number]: BaseballMetric } = {};
-    const totalFrames = frameNumbers.length;
-    
-    frameNumbers.forEach((frameNumber, index) => {
-      const t = index / Math.max(totalFrames - 1, 1); // Normalized time 0-1
-      
-      // Realistic baseball pitching motion patterns
-      let pelvisTwistVel = 0;
-      let shoulderTwistVel = 0;
-      let shoulderExtRot = 0;
-      let trunkSep = 0;
-      
-      if (t < 0.25) {
-        // Wind-up phase: gradual build-up
-        pelvisTwistVel = 20 + t * 80 + Math.sin(t * Math.PI * 6) * 12;
-        shoulderTwistVel = 15 + t * 60 + Math.cos(t * Math.PI * 5) * 10;
-        shoulderExtRot = 25 + t * 45;
-        trunkSep = 10 + t * 25;
-      } else if (t < 0.55) {
-        // Stride phase: acceleration
-        const stridePhase = (t - 0.25) / 0.3;
-        pelvisTwistVel = 100 + stridePhase * 150 + Math.sin(stridePhase * Math.PI * 4) * 25;
-        shoulderTwistVel = 75 + stridePhase * 180 + Math.cos(stridePhase * Math.PI * 3) * 30;
-        shoulderExtRot = 70 + stridePhase * 50;
-        trunkSep = 35 + stridePhase * 40;
-      } else if (t < 0.72) {
-        // Acceleration phase: peak values approaching
-        const accelPhase = (t - 0.55) / 0.17;
-        pelvisTwistVel = 250 + accelPhase * 200 + Math.sin(accelPhase * Math.PI * 2) * 40;
-        shoulderTwistVel = 255 + accelPhase * 250 + Math.cos(accelPhase * Math.PI * 2.5) * 50;
-        shoulderExtRot = 120 + accelPhase * 60;
-        trunkSep = 75 + accelPhase * 45;
-      } else if (t < 0.8) {
-        // Release phase: maximum values
-        const releasePhase = (t - 0.72) / 0.08;
-        pelvisTwistVel = 450 + Math.sin(releasePhase * Math.PI * 3) * 80;
-        shoulderTwistVel = 505 + Math.cos(releasePhase * Math.PI * 4) * 100;
-        shoulderExtRot = 180 + Math.sin(releasePhase * Math.PI) * 40;
-        trunkSep = 120 + Math.cos(releasePhase * Math.PI) * 30;
-      } else {
-        // Follow-through: rapid decrease
-        const followPhase = (t - 0.8) / 0.2;
-        pelvisTwistVel = 530 * (1 - followPhase * 0.9) + Math.sin(followPhase * Math.PI * 8) * 30;
-        shoulderTwistVel = 605 * (1 - followPhase * 0.85) + Math.cos(followPhase * Math.PI * 10) * 40;
-        shoulderExtRot = 220 * (1 - followPhase * 0.6);
-        trunkSep = 150 * (1 - followPhase * 0.7);
-      }
-      
-      // Add realistic noise and ensure positive values for some metrics
-      pelvisTwistVel += (Math.random() - 0.5) * 20;
-      shoulderTwistVel += (Math.random() - 0.5) * 25;
-      shoulderExtRot = Math.max(5, shoulderExtRot + (Math.random() - 0.5) * 10);
-      trunkSep = Math.max(2, trunkSep + (Math.random() - 0.5) * 8);
-      
-      result[frameNumber] = {
-        pelvisVelocity: Math.abs(pelvisTwistVel),
-        trunkVelocity: Math.abs(shoulderTwistVel),
-        elbowTorque: Math.abs(shoulderExtRot),
-        shoulderTorque: trunkSep,
-        pelvisTwistVelocity: pelvisTwistVel,
-        shoulderTwistVelocity: shoulderTwistVel,
-        shoulderExternalRotation: shoulderExtRot,
-        trunkSeparation: trunkSep,
-        timestamp: frameNumber / 300
-      };
-    });
+    console.log(`[BiomechanicsCalculator] Calculation summary: ${validCalculations}/${totalCalculations} frames have non-zero values`);
     
     return result;
   }
