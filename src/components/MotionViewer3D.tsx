@@ -3,12 +3,10 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { MotionData, FrameData, BONE_CONNECTIONS } from '@/utils/dataParser';
-import { SkeletonModel } from './SkeletonModel';
 
 interface MotionViewer3DProps {
   motionData: MotionData;
   currentFrame: number;
-  showRealisticSkeleton?: boolean;
 }
 
 interface SkeletonProps {
@@ -116,7 +114,7 @@ function Bone({ start, end, isUpperBody = false, isThrowingArm = false }: {
   );
 }
 
-function Skeleton({ frameData, showRealisticSkeleton = false }: SkeletonProps & { showRealisticSkeleton?: boolean }) {
+function Skeleton({ frameData }: SkeletonProps) {
   const joints = frameData.jointCenters;
   const jointRotations = frameData.jointRotations;
   const keyJoints = ['R_Shoulder', 'R_Elbow', 'R_Wrist', 'Pelvis', 'Head'];
@@ -138,11 +136,6 @@ function Skeleton({ frameData, showRealisticSkeleton = false }: SkeletonProps & 
     y: pos.y,  // Keep Y (vertical)
     z: pos.z   // Keep Z (forward/back)
   });
-
-  // Show realistic skeleton or stick figure
-  if (showRealisticSkeleton) {
-    return <SkeletonModel frameData={frameData} />;
-  }
 
   return (
     <group>
@@ -246,7 +239,7 @@ function MetricOverlay({ frameData }: { frameData: FrameData }) {
   );
 }
 
-function Scene({ motionData, currentFrame, cameraView, showRealisticSkeleton }: MotionViewer3DProps & { cameraView: string; showRealisticSkeleton?: boolean }) {
+function Scene({ motionData, currentFrame, cameraView }: MotionViewer3DProps & { cameraView: string }) {
   const frameData = motionData.frames[currentFrame] || motionData.frames[0];
   const controlsRef = useRef<any>();
   
@@ -276,13 +269,11 @@ function Scene({ motionData, currentFrame, cameraView, showRealisticSkeleton }: 
   
   return (
     <>
-      {/* Enhanced Lighting for Skeleton Visibility */}
-      <ambientLight intensity={0.8} color="#ffffff" />
-      <directionalLight position={[10, 10, 5]} intensity={1.2} color="#ffffff" />
-      <directionalLight position={[-5, 8, 3]} intensity={0.8} color="#ffffff" />
-      <pointLight position={[8, 8, 8]} intensity={0.6} color="#ffffff" />
-      <pointLight position={[-8, -8, -8]} intensity={0.4} color="#ffffff" />
-      <pointLight position={[0, 10, 0]} intensity={0.5} color="#ffffff" />
+      {/* Enhanced Lighting */}
+      <ambientLight intensity={0.4} color="#001133" />
+      <pointLight position={[8, 8, 8]} intensity={0.6} color="#00ccff" />
+      <pointLight position={[-8, -8, -8]} intensity={0.4} color="#0066cc" />
+      <pointLight position={[0, 10, 0]} intensity={0.3} color="#ffffff" />
       
       {/* Enhanced Grid with ground reference */}
       <Grid
@@ -312,7 +303,7 @@ function Scene({ motionData, currentFrame, cameraView, showRealisticSkeleton }: 
       </mesh>
       
       {/* Skeleton */}
-      <Skeleton frameData={frameData} showRealisticSkeleton={showRealisticSkeleton} />
+      <Skeleton frameData={frameData} />
       
       {/* Metric overlay */}
       <MetricOverlay frameData={frameData} />
@@ -333,7 +324,7 @@ function Scene({ motionData, currentFrame, cameraView, showRealisticSkeleton }: 
   );
 }
 
-export function MotionViewer3D({ motionData, currentFrame, cameraView = 'free', showRealisticSkeleton = false }: MotionViewer3DProps & { cameraView?: string; showRealisticSkeleton?: boolean }) {
+export function MotionViewer3D({ motionData, currentFrame, cameraView = 'free' }: MotionViewer3DProps & { cameraView?: string }) {
   return (
     <div className="w-full h-full bg-background rounded-lg overflow-hidden border border-card-border">
       <Canvas
@@ -350,7 +341,7 @@ export function MotionViewer3D({ motionData, currentFrame, cameraView = 'free', 
         }}
         dpr={[1, 2]}
       >
-        <Scene motionData={motionData} currentFrame={currentFrame} cameraView={cameraView} showRealisticSkeleton={showRealisticSkeleton} />
+        <Scene motionData={motionData} currentFrame={currentFrame} cameraView={cameraView} />
       </Canvas>
     </div>
   );
