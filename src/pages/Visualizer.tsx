@@ -86,20 +86,21 @@ const Visualizer = () => {
   const handleReset = () => { setCurrentFrame(0); setIsPlaying(false); };
   const handleFrameChange = (frame: number) => setCurrentFrame(frame);
 
-  // Mock data for graphs
-  const generateMockData = (metric: string) => {
-    return Array.from({ length: 20 }, (_, i) => ({
-      frame: i * 5,
-      value: Math.sin(i * 0.3) * 50 + 100 + Math.random() * 20
+  // Generate real data for graphs from motion capture
+  const generateRealData = (metric: string) => {
+    if (!motionData) return [];
+    return motionData.frames.map((frame, index) => ({
+      frame: index,
+      value: frame.baseballMetrics[metric] || 0
     }));
   };
 
   const getMetricInfo = (metric: string) => {
     const metrics = {
-      pelvisVelocity: { label: 'Pelvis Twist Velocity', unit: '°/s', color: 'hsl(var(--primary))' },
-      shoulderVelocity: { label: 'Shoulder Twist Velocity', unit: '°/s', color: 'hsl(var(--secondary))' },
-      shoulderRotation: { label: 'Shoulder External Rotation', unit: '°', color: 'hsl(var(--accent))' },
-      trunkSeparation: { label: 'Trunk Separation', unit: '°', color: 'hsl(180 100% 70%)' }
+      pelvisVelocity: { label: 'Pelvis Velocity', unit: 'm/s', color: 'hsl(var(--primary))' },
+      trunkVelocity: { label: 'Trunk Velocity', unit: 'm/s', color: 'hsl(var(--secondary))' },
+      elbowTorque: { label: 'Elbow Torque', unit: 'Nm', color: 'hsl(var(--accent))' },
+      shoulderTorque: { label: 'Shoulder Torque', unit: 'Nm', color: 'hsl(180 100% 70%)' }
     };
     return metrics[metric] || metrics.pelvisVelocity;
   };
@@ -114,8 +115,14 @@ const Visualizer = () => {
   }
 
   const currentFrameData = motionData.frames[currentFrame];
-  const mockData = generateMockData(selectedMetric);
+  const realData = generateRealData(selectedMetric);
   const metricInfo = getMetricInfo(selectedMetric);
+
+  // Calculate max/min for proper graph scaling
+  const maxValue = Math.max(...realData.map(d => d.value));
+  const minValue = Math.min(...realData.map(d => d.value));
+  const valueRange = maxValue - minValue;
+  const graphHeight = 140;
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
@@ -146,36 +153,60 @@ const Visualizer = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-popover backdrop-blur-xl border-card-border">
-                <SelectItem value="pelvisVelocity">Pelvis Twist Velocity</SelectItem>
-                <SelectItem value="shoulderVelocity">Shoulder Twist Velocity</SelectItem>
-                <SelectItem value="shoulderRotation">Shoulder External Rotation</SelectItem>
-                <SelectItem value="trunkSeparation">Trunk Separation</SelectItem>
+                <SelectItem value="pelvisVelocity">Pelvis Velocity</SelectItem>
+                <SelectItem value="trunkVelocity">Trunk Velocity</SelectItem>
+                <SelectItem value="elbowTorque">Elbow Torque</SelectItem>
+                <SelectItem value="shoulderTorque">Shoulder Torque</SelectItem>
               </SelectContent>
             </Select>
 
-            {/* Mock Graph */}
+            {/* Real Graph */}
             <div className="h-48 bg-muted/20 rounded-lg p-4 border border-card-border">
               <div className="text-sm text-muted-foreground mb-2">{metricInfo.label}</div>
               <svg className="w-full h-full">
+                {/* Grid lines */}
+                <defs>
+                  <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                    <path d="M 20 0 L 0 0 0 20" fill="none" stroke="hsl(var(--border))" strokeWidth="0.5" opacity="0.3"/>
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#grid)" />
+                
+                {/* Data line */}
                 <polyline
                   fill="none"
                   stroke={metricInfo.color}
                   strokeWidth="2"
-                  points={mockData.map((d, i) => `${i * 12},${160 - (d.value * 0.8)}`).join(' ')}
+                  points={realData.map((d, i) => {
+                    const x = (i / (realData.length - 1)) * 280; // Full width
+                    const y = graphHeight - ((d.value - minValue) / valueRange) * graphHeight;
+                    return `${x},${y}`;
+                  }).join(' ')}
                 />
+                
                 {/* Current frame indicator */}
                 <line
-                  x1={currentFrame * 0.6}
+                  x1={(currentFrame / (motionData.frames.length - 1)) * 280}
                   y1="0"
-                  x2={currentFrame * 0.6}
-                  y2="160"
+                  x2={(currentFrame / (motionData.frames.length - 1)) * 280}
+                  y2={graphHeight}
                   stroke="hsl(var(--destructive))"
                   strokeWidth="2"
                   strokeDasharray="4,4"
                 />
+                
+                {/* Value labels */}
+                <text x="5" y="15" fill="hsl(var(--muted-foreground))" fontSize="10">
+                  {maxValue.toFixed(1)}
+                </text>
+                <text x="5" y={graphHeight - 5} fill="hsl(var(--muted-foreground))" fontSize="10">
+                  {minValue.toFixed(1)}
+                </text>
               </svg>
-              <div className="text-xs text-muted-foreground mt-1">
-                Current: {mockData[Math.floor(currentFrame / 5)]?.value.toFixed(1)} {metricInfo.unit}
+              <div className="text-xs text-muted-foreground mt-1 flex justify-between">
+                <span>Frame 0</span>
+                <span>Current: {realData[currentFrame]?.value.toFixed(1)} {metricInfo.unit}</span>
+                <span>Frame {motionData.frames.length - 1}</span>
               </div>
             </div>
           </div>
@@ -228,8 +259,8 @@ const Visualizer = () => {
           <div className="flex items-center space-x-4">
             <TrendingUp className="h-5 w-5 text-primary" />
             <div className="text-sm">
-              <div className="font-bold text-foreground">4-Seam Fastball</div>
-              <div className="text-muted-foreground">92.5 mph • 2,380 rpm</div>
+              <div className="font-bold text-foreground">Motion Analysis</div>
+              <div className="text-muted-foreground">{motionData.frames.length} frames • {motionData.frameRate} Hz</div>
             </div>
           </div>
         </CardContent>
