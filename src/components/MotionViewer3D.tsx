@@ -1,8 +1,8 @@
 import React, { useRef, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Grid, Text, useGLTF } from '@react-three/drei';
+import { OrbitControls, Grid, Text } from '@react-three/drei';
 import * as THREE from 'three';
-import { MotionData, FrameData } from '@/utils/dataParser';
+import { MotionData, FrameData, BONE_CONNECTIONS } from '@/utils/dataParser';
 
 interface MotionViewer3DProps {
   motionData: MotionData;
@@ -10,51 +10,86 @@ interface MotionViewer3DProps {
   cameraView?: string;
 }
 
-/* ---- GLTF Skeleton Component ---- */
+/* ---- Procedural Skeleton Component ---- */
 function AnatomicalSkeleton({ frameData }: { frameData: FrameData }) {
-  const { scene } = useGLTF('/scene.gltf'); // load GLTF skeleton
   const skeletonRef = useRef<THREE.Group>(null);
 
-  // Map bone names to mocap joint names here
-  // Example mapping (adjust to match your GLTF bone names and dataParser joints):
-  const boneJointMap: Record<string, string> = {
-    Hips: 'Pelvis',
-    Spine: 'Spine',
-    Neck: 'Neck',
-    Head: 'Head',
-    LeftArm: 'L_Shoulder',
-    LeftForeArm: 'L_Elbow',
-    LeftHand: 'L_Wrist',
-    RightArm: 'R_Shoulder',
-    RightForeArm: 'R_Elbow',
-    RightHand: 'R_Wrist',
-    // Add legs if needed
+  // Create bone geometry
+  const createBone = (start: THREE.Vector3, end: THREE.Vector3, radius: number = 0.02) => {
+    const direction = new THREE.Vector3().subVectors(end, start);
+    const length = direction.length();
+    const geometry = new THREE.CylinderGeometry(radius, radius * 0.7, length, 8);
+    const material = new THREE.MeshPhongMaterial({ 
+      color: '#e8e8e8',
+      transparent: true,
+      opacity: 0.9
+    });
+    const bone = new THREE.Mesh(geometry, material);
+    
+    // Position bone at midpoint and orient toward end
+    bone.position.copy(start).add(direction.multiplyScalar(0.5));
+    bone.lookAt(end);
+    bone.rotateX(Math.PI / 2); // Align with cylinder's natural orientation
+    
+    return bone;
   };
 
-  // Update bone positions each frame
+  // Create joint sphere
+  const createJoint = (position: THREE.Vector3, radius: number = 0.03) => {
+    const geometry = new THREE.SphereGeometry(radius, 12, 8);
+    const material = new THREE.MeshPhongMaterial({ 
+      color: '#ffffff',
+      transparent: true,
+      opacity: 0.8
+    });
+    const joint = new THREE.Mesh(geometry, material);
+    joint.position.copy(position);
+    return joint;
+  };
+
+  // Update skeleton each frame
   useFrame(() => {
     if (!frameData || !skeletonRef.current) return;
 
-    Object.entries(boneJointMap).forEach(([boneName, jointName]) => {
-      const jointPos = frameData.jointCenters[jointName];
-      if (!jointPos) return;
+    // Clear previous bones and joints
+    while (skeletonRef.current.children.length > 0) {
+      skeletonRef.current.remove(skeletonRef.current.children[0]);
+    }
 
-      const bone = skeletonRef.current!.getObjectByName(boneName);
-      if (bone) {
-        // Mirror X if right-handed
-        bone.position.set(-jointPos.x, jointPos.y, jointPos.z);
+    const joints = frameData.jointCenters;
+    const positions: { [key: string]: THREE.Vector3 } = {};
+
+    // Convert joint data to THREE.Vector3 positions with coordinate transformation
+    Object.entries(joints).forEach(([name, joint]) => {
+      if (joint) {
+        // Scale and transform coordinates for proper visualization
+        positions[name] = new THREE.Vector3(
+          -joint.x * 0.01, // Mirror X and scale down
+          joint.y * 0.01,  // Scale down Y
+          joint.z * 0.01   // Scale down Z
+        );
       }
+    });
+
+    // Create bones based on connections
+    BONE_CONNECTIONS.forEach(([startJoint, endJoint]) => {
+      const startPos = positions[startJoint];
+      const endPos = positions[endJoint];
+      
+      if (startPos && endPos) {
+        const bone = createBone(startPos, endPos);
+        skeletonRef.current!.add(bone);
+      }
+    });
+
+    // Create joints at connection points
+    Object.entries(positions).forEach(([name, pos]) => {
+      const joint = createJoint(pos);
+      skeletonRef.current!.add(joint);
     });
   });
 
-  return (
-    <primitive
-      ref={skeletonRef}
-      object={scene}
-      scale={[0.01, 0.01, 0.01]} // Adjust scaling to match motion data
-      position={[0, 0, 0]}
-    />
-  );
+  return <group ref={skeletonRef} />;
 }
 
 /* ---- Metric Overlay ---- */
