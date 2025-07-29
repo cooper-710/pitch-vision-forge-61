@@ -203,6 +203,7 @@ export class DataParser {
     const result: { [frameNumber: number]: { [jointName: string]: JointRotation } } = {};
     
     const dataLines = lines.filter(line => line.trim() && !line.startsWith('Frame'));
+    console.log(`[DataParser] Parsing ${dataLines.length} rotation frames`);
     
     dataLines.forEach((line, index) => {
       const values = line.trim().split(/\s+/).map(Number);
@@ -212,15 +213,37 @@ export class DataParser {
         
         JOINT_NAMES.forEach((jointName, jointIndex) => {
           const startIndex = jointIndex * 4;
-          result[frameNumber][jointName] = {
+          const quat = {
             x: values[startIndex] || 0,
             y: values[startIndex + 1] || 0,
             z: values[startIndex + 2] || 0,
             w: values[startIndex + 3] || 1
           };
+          
+          // Validate quaternion magnitude
+          const magnitude = Math.sqrt(quat.x * quat.x + quat.y * quat.y + quat.z * quat.z + quat.w * quat.w);
+          if (magnitude < 0.1) {
+            // Invalid quaternion, use identity
+            quat.x = 0; quat.y = 0; quat.z = 0; quat.w = 1;
+          } else if (Math.abs(magnitude - 1.0) > 0.1) {
+            // Normalize quaternion
+            quat.x /= magnitude; quat.y /= magnitude; quat.z /= magnitude; quat.w /= magnitude;
+          }
+          
+          result[frameNumber][jointName] = quat;
         });
       }
     });
+    
+    // Debug first frame rotation data
+    if (Object.keys(result).length > 0) {
+      const firstFrame = result[0];
+      console.log('[DataParser] Sample joint rotations (frame 0):', {
+        Pelvis: firstFrame?.['Pelvis'],
+        R_Shoulder: firstFrame?.['R_Shoulder'],
+        Neck: firstFrame?.['Neck']
+      });
+    }
     
     return result;
   }
@@ -258,6 +281,11 @@ export class DataParser {
     const result: { [frameNumber: number]: BaseballMetric } = {};
     const deltaTime = 1 / 300; // 300 Hz sampling rate
     
+    console.log(`[BiomechanicsCalculator] Processing ${frameNumbers.length} frames`);
+    
+    let validCalculations = 0;
+    let totalCalculations = 0;
+    
     frameNumbers.forEach((frameNumber, index) => {
       const currentRotations = jointRotations[frameNumber];
       const prevRotations = index > 0 ? jointRotations[frameNumbers[index - 1]] : null;
@@ -266,6 +294,16 @@ export class DataParser {
         const pelvisRot = currentRotations['Pelvis'];
         const neckRot = currentRotations['Neck'];
         const shoulderRot = currentRotations['R_Shoulder']; // Right shoulder for throwing
+        
+        // Validate joint data exists
+        const hasValidData = pelvisRot && neckRot && shoulderRot;
+        if (!hasValidData && frameNumber === 0) {
+          console.warn('[BiomechanicsCalculator] Missing joint data:', {
+            pelvis: !!pelvisRot,
+            neck: !!neckRot,
+            shoulder: !!shoulderRot
+          });
+        }
         
         // Calculate biomechanics metrics
         const pelvisTwistVel = pelvisRot && prevRotations?.['Pelvis'] 
@@ -284,6 +322,13 @@ export class DataParser {
           ? BiomechanicsCalculator.calculateTrunkSeparation(pelvisRot, neckRot)
           : 0;
         
+        // Track calculation validity
+        totalCalculations++;
+        if (Math.abs(pelvisTwistVel) > 0.1 || Math.abs(shoulderTwistVel) > 0.1 || 
+            Math.abs(shoulderExtRot) > 0.1 || Math.abs(trunkSep) > 0.1) {
+          validCalculations++;
+        }
+        
         result[frameNumber] = {
           pelvisVelocity: Math.abs(pelvisTwistVel) * 0.5, // Scale for legacy compatibility
           trunkVelocity: Math.abs(shoulderTwistVel) * 0.3,
@@ -295,8 +340,20 @@ export class DataParser {
           trunkSeparation: trunkSep,
           timestamp: frameNumber / 300
         };
+        
+        // Debug sample calculations
+        if (frameNumber === Math.floor(frameNumbers.length / 2)) {
+          console.log(`[BiomechanicsCalculator] Mid-sequence sample (frame ${frameNumber}):`, {
+            pelvisTwistVel: pelvisTwistVel.toFixed(2),
+            shoulderTwistVel: shoulderTwistVel.toFixed(2),
+            shoulderExtRot: shoulderExtRot.toFixed(2),
+            trunkSep: trunkSep.toFixed(2)
+          });
+        }
       }
     });
+    
+    console.log(`[BiomechanicsCalculator] Calculation summary: ${validCalculations}/${totalCalculations} frames have non-zero values`);
     
     return result;
   }

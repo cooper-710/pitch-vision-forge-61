@@ -86,7 +86,7 @@ const Visualizer = () => {
   const handleReset = () => { setCurrentFrame(0); setIsPlaying(false); };
   const handleFrameChange = (frame: number) => setCurrentFrame(frame);
 
-  // Generate mock data with realistic biomechanical patterns (fallback when real data is zeros)
+  // Generate data with debugging and validation
   const generateRealData = (metric: string) => {
     if (!motionData) return [];
     
@@ -116,9 +116,29 @@ const Visualizer = () => {
       };
     });
 
-    // Check if all values are zero or very small - use mock data as fallback
+    // Analyze data quality
     const maxVal = Math.max(...realData.map(d => Math.abs(d.value)));
-    if (maxVal < 0.001) {
+    const nonZeroCount = realData.filter(d => Math.abs(d.value) > 0.001).length;
+    const isUsingMockData = maxVal < 0.001;
+    
+    console.log(`[Visualizer] Data analysis for ${metric}:`, {
+      maxValue: maxVal.toFixed(3),
+      nonZeroFrames: nonZeroCount,
+      totalFrames: frameCount,
+      usingMockData: isUsingMockData
+    });
+    
+    // Show current frame value for debugging correlation
+    if (currentFrame < realData.length) {
+      const currentValue = realData[currentFrame]?.value || 0;
+      if (currentFrame % 30 === 0) { // Log every 30 frames to avoid spam
+        console.log(`[Visualizer] Frame ${currentFrame} ${metric}: ${currentValue.toFixed(2)}`);
+      }
+    }
+    
+    // Use mock data as fallback when real data is invalid
+    if (isUsingMockData) {
+      console.warn(`[Visualizer] Using mock data for ${metric} - real calculations returned zeros`);
       return motionData.frames.map((frame, i) => {
         const t = i / Math.max(frameCount - 1, 1);
         let value = 0;
