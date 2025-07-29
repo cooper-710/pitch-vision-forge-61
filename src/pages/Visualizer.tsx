@@ -147,8 +147,18 @@ const Visualizer = () => {
   // Calculate max/min for proper graph scaling
   const maxValue = Math.max(...realData.map(d => d.value));
   const minValue = Math.min(...realData.map(d => d.value));
-  const valueRange = maxValue - minValue;
+  let valueRange = maxValue - minValue;
+  
+  // Debug logging
+  console.log(`Metric: ${selectedMetric}`, { maxValue, minValue, valueRange, sampleValues: realData.slice(0, 5) });
+  
+  // Fix division by zero when all values are the same
+  if (valueRange === 0 || valueRange < 0.001) {
+    valueRange = Math.max(Math.abs(maxValue) * 0.1, 1); // 10% of max value or minimum 1
+  }
+  
   const graphHeight = 140;
+  const padding = valueRange * 0.1; // Add 10% padding
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
@@ -204,17 +214,19 @@ const Visualizer = () => {
                   stroke={metricInfo.color}
                   strokeWidth="2"
                   points={realData.map((d, i) => {
-                    const x = (i / (realData.length - 1)) * 280; // Full width
-                    const y = graphHeight - ((d.value - minValue) / valueRange) * graphHeight;
-                    return `${x},${y}`;
+                    const x = (i / Math.max(realData.length - 1, 1)) * 280; // Prevent division by zero
+                    const adjustedMin = minValue - padding;
+                    const adjustedRange = valueRange + (2 * padding);
+                    const y = graphHeight - ((d.value - adjustedMin) / adjustedRange) * graphHeight;
+                    return `${Math.max(0, Math.min(280, x))},${Math.max(0, Math.min(graphHeight, y))}`;
                   }).join(' ')}
                 />
                 
                 {/* Current frame indicator */}
                 <line
-                  x1={(currentFrame / (motionData.frames.length - 1)) * 280}
+                  x1={Math.max(0, Math.min(280, (currentFrame / Math.max(motionData.frames.length - 1, 1)) * 280))}
                   y1="0"
-                  x2={(currentFrame / (motionData.frames.length - 1)) * 280}
+                  x2={Math.max(0, Math.min(280, (currentFrame / Math.max(motionData.frames.length - 1, 1)) * 280))}
                   y2={graphHeight}
                   stroke="hsl(var(--destructive))"
                   strokeWidth="2"
