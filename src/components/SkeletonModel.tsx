@@ -1,260 +1,155 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
-import { FrameData } from '@/utils/dataParser';
+import { FrameData, BONE_CONNECTIONS } from '@/utils/dataParser';
 
 interface SkeletonModelProps {
   frameData: FrameData;
   visible?: boolean;
 }
 
-// Standard bone mapping for human skeleton hierarchy
-const BONE_MAPPING = {
-  // Core skeleton
-  'Hips': 'Pelvis',
-  'Spine': 'Spine',
-  'Spine1': 'Chest', 
-  'Spine2': 'Chest',
-  'Neck': 'Neck',
-  'Head': 'Head',
-  
-  // Left arm
-  'LeftShoulder': 'L_Shoulder',
-  'LeftArm': 'L_Shoulder',
-  'LeftForeArm': 'L_Elbow',
-  'LeftHand': 'L_Wrist',
-  
-  // Right arm (throwing arm)
-  'RightShoulder': 'R_Shoulder', 
-  'RightArm': 'R_Shoulder',
-  'RightForeArm': 'R_Elbow',
-  'RightHand': 'R_Wrist',
-  
-  // Left leg
-  'LeftUpLeg': 'L_Hip',
-  'LeftLeg': 'L_Knee', 
-  'LeftFoot': 'L_Ankle',
-  'LeftToeBase': 'L_Foot',
-  
-  // Right leg
-  'RightUpLeg': 'R_Hip',
-  'RightLeg': 'R_Knee',
-  'RightFoot': 'R_Ankle', 
-  'RightToeBase': 'R_Foot'
-};
-
-// Create a procedural skeleton mesh
-function createProceduralSkeleton() {
+// Create a data-driven skeleton from mocap joint positions
+function createDataDrivenSkeleton(frameData: FrameData) {
   const group = new THREE.Group();
   
-  // Bone material
-  const boneMaterial = new THREE.MeshLambertMaterial({ 
-    color: '#f8f8f8',
+  if (!frameData.jointCenters) {
+    return { group, joints: {}, bones: {} };
+  }
+
+  // Materials - using MeshBasicMaterial for better visibility
+  const boneMaterial = new THREE.MeshBasicMaterial({ 
+    color: 0xf0f0f0,
+    transparent: true,
+    opacity: 0.8
+  });
+  
+  const jointMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
     transparent: true,
     opacity: 0.9
   });
-  
-  const jointMaterial = new THREE.MeshLambertMaterial({
-    color: '#e0e0e0',
+
+  const throwingArmMaterial = new THREE.MeshBasicMaterial({
+    color: 0xff6b6b,
     transparent: true,
-    opacity: 0.95
+    opacity: 0.8
   });
 
-  // Helper function to create bone geometry
-  const createBone = (length: number, radius: number = 0.015) => {
-    const geometry = new THREE.CapsuleGeometry(radius, length, 8, 16);
-    return new THREE.Mesh(geometry, boneMaterial);
-  };
+  // Store joint and bone meshes
+  const joints: { [key: string]: THREE.Mesh } = {};
+  const bones: { [key: string]: THREE.Mesh } = {};
 
-  const createJoint = (radius: number = 0.025) => {
+  // Create joint spheres at mocap positions
+  Object.entries(frameData.jointCenters).forEach(([jointName, position]) => {
+    const isThrowingArm = jointName.startsWith('R_') && (
+      jointName.includes('Shoulder') || 
+      jointName.includes('Elbow') || 
+      jointName.includes('Wrist')
+    );
+    
+    const radius = jointName === 'Head' ? 0.08 : 
+                   jointName === 'Pelvis' ? 0.06 : 
+                   isThrowingArm ? 0.04 : 0.03;
+
     const geometry = new THREE.SphereGeometry(radius, 12, 8);
-    return new THREE.Mesh(geometry, jointMaterial);
-  };
+    const material = isThrowingArm ? throwingArmMaterial : jointMaterial;
+    const joint = new THREE.Mesh(geometry, material);
+    
+    // Apply position with coordinate transformation
+    joint.position.set(-position.x, position.y, position.z);
+    joints[jointName] = joint;
+    group.add(joint);
+  });
 
-  // Create bone hierarchy
-  const bones: { [key: string]: THREE.Object3D } = {};
-  
-  // Root - Hips/Pelvis
-  bones['Hips'] = createJoint(0.035);
-  bones['Hips'].name = 'Hips';
-  group.add(bones['Hips']);
-  
-  // Spine
-  bones['Spine'] = createBone(0.15, 0.02);
-  bones['Spine'].name = 'Spine';
-  bones['Spine'].position.set(0, 0.075, 0);
-  bones['Hips'].add(bones['Spine']);
-  
-  bones['Spine1'] = createBone(0.12, 0.018);
-  bones['Spine1'].name = 'Spine1';
-  bones['Spine1'].position.set(0, 0.06, 0);
-  bones['Spine'].add(bones['Spine1']);
-  
-  bones['Spine2'] = createBone(0.1, 0.016);
-  bones['Spine2'].name = 'Spine2';
-  bones['Spine2'].position.set(0, 0.05, 0);
-  bones['Spine1'].add(bones['Spine2']);
-  
-  // Neck and Head
-  bones['Neck'] = createBone(0.08, 0.012);
-  bones['Neck'].name = 'Neck';
-  bones['Neck'].position.set(0, 0.04, 0);
-  bones['Spine2'].add(bones['Neck']);
-  
-  bones['Head'] = createJoint(0.045);
-  bones['Head'].name = 'Head';
-  bones['Head'].position.set(0, 0.08, 0);
-  bones['Neck'].add(bones['Head']);
-  
-  // Left Arm
-  bones['LeftShoulder'] = createJoint(0.03);
-  bones['LeftShoulder'].name = 'LeftShoulder';
-  bones['LeftShoulder'].position.set(0.15, 0, 0);
-  bones['Spine2'].add(bones['LeftShoulder']);
-  
-  bones['LeftArm'] = createBone(0.25, 0.02);
-  bones['LeftArm'].name = 'LeftArm';
-  bones['LeftArm'].position.set(0.125, 0, 0);
-  bones['LeftArm'].rotation.z = Math.PI / 2;
-  bones['LeftShoulder'].add(bones['LeftArm']);
-  
-  bones['LeftForeArm'] = createBone(0.22, 0.018);
-  bones['LeftForeArm'].name = 'LeftForeArm';
-  bones['LeftForeArm'].position.set(0.11, 0, 0);
-  bones['LeftArm'].add(bones['LeftForeArm']);
-  
-  bones['LeftHand'] = createJoint(0.025);
-  bones['LeftHand'].name = 'LeftHand';
-  bones['LeftHand'].position.set(0.11, 0, 0);
-  bones['LeftForeArm'].add(bones['LeftHand']);
-  
-  // Right Arm (mirror of left)
-  bones['RightShoulder'] = createJoint(0.03);
-  bones['RightShoulder'].name = 'RightShoulder';
-  bones['RightShoulder'].position.set(-0.15, 0, 0);
-  bones['Spine2'].add(bones['RightShoulder']);
-  
-  bones['RightArm'] = createBone(0.25, 0.02);
-  bones['RightArm'].name = 'RightArm';
-  bones['RightArm'].position.set(-0.125, 0, 0);
-  bones['RightArm'].rotation.z = -Math.PI / 2;
-  bones['RightShoulder'].add(bones['RightArm']);
-  
-  bones['RightForeArm'] = createBone(0.22, 0.018);
-  bones['RightForeArm'].name = 'RightForeArm';
-  bones['RightForeArm'].position.set(-0.11, 0, 0);
-  bones['RightArm'].add(bones['RightForeArm']);
-  
-  bones['RightHand'] = createJoint(0.025);
-  bones['RightHand'].name = 'RightHand';
-  bones['RightHand'].position.set(-0.11, 0, 0);
-  bones['RightForeArm'].add(bones['RightHand']);
-  
-  // Left Leg
-  bones['LeftUpLeg'] = createBone(0.35, 0.025);
-  bones['LeftUpLeg'].name = 'LeftUpLeg';
-  bones['LeftUpLeg'].position.set(0.08, -0.175, 0);
-  bones['LeftUpLeg'].rotation.z = Math.PI;
-  bones['Hips'].add(bones['LeftUpLeg']);
-  
-  bones['LeftLeg'] = createBone(0.32, 0.022);
-  bones['LeftLeg'].name = 'LeftLeg';
-  bones['LeftLeg'].position.set(0, -0.16, 0);
-  bones['LeftUpLeg'].add(bones['LeftLeg']);
-  
-  bones['LeftFoot'] = createJoint(0.025);
-  bones['LeftFoot'].name = 'LeftFoot';
-  bones['LeftFoot'].position.set(0, -0.16, 0);
-  bones['LeftLeg'].add(bones['LeftFoot']);
-  
-  // Right Leg (mirror of left)
-  bones['RightUpLeg'] = createBone(0.35, 0.025);
-  bones['RightUpLeg'].name = 'RightUpLeg';
-  bones['RightUpLeg'].position.set(-0.08, -0.175, 0);
-  bones['RightUpLeg'].rotation.z = Math.PI;
-  bones['Hips'].add(bones['RightUpLeg']);
-  
-  bones['RightLeg'] = createBone(0.32, 0.022);
-  bones['RightLeg'].name = 'RightLeg';
-  bones['RightLeg'].position.set(0, -0.16, 0);
-  bones['RightUpLeg'].add(bones['RightLeg']);
-  
-  bones['RightFoot'] = createJoint(0.025);
-  bones['RightFoot'].name = 'RightFoot';
-  bones['RightFoot'].position.set(0, -0.16, 0);
-  bones['RightLeg'].add(bones['RightFoot']);
+  // Create bones between connected joints
+  BONE_CONNECTIONS.forEach(([joint1, joint2]) => {
+    const pos1 = frameData.jointCenters[joint1];
+    const pos2 = frameData.jointCenters[joint2];
+    
+    if (pos1 && pos2) {
+      // Transform coordinates
+      const start = new THREE.Vector3(-pos1.x, pos1.y, pos1.z);
+      const end = new THREE.Vector3(-pos2.x, pos2.y, pos2.z);
+      
+      const length = start.distanceTo(end);
+      const radius = joint1.includes('Spine') || joint2.includes('Spine') ? 0.025 :
+                     joint1.startsWith('R_') || joint2.startsWith('R_') ? 0.02 : 0.018;
 
-  return { group, bones };
+      if (length > 0.01) { // Only create bone if joints are far enough apart
+        const geometry = new THREE.CapsuleGeometry(radius, length, 6, 12);
+        
+        const isThrowingArm = (joint1.startsWith('R_') || joint2.startsWith('R_')) && 
+                              (joint1.includes('Shoulder') || joint1.includes('Elbow') || joint1.includes('Wrist') ||
+                               joint2.includes('Shoulder') || joint2.includes('Elbow') || joint2.includes('Wrist'));
+        
+        const material = isThrowingArm ? throwingArmMaterial : boneMaterial;
+        const bone = new THREE.Mesh(geometry, material);
+        
+        // Position bone at midpoint
+        const midpoint = start.clone().add(end).multiplyScalar(0.5);
+        bone.position.copy(midpoint);
+        
+        // Orient bone along the connection
+        const direction = end.clone().sub(start).normalize();
+        const up = new THREE.Vector3(0, 1, 0);
+        bone.lookAt(bone.position.clone().add(direction));
+        
+        bones[`${joint1}-${joint2}`] = bone;
+        group.add(bone);
+      }
+    }
+  });
+
+  return { group, joints, bones };
 }
 
 export function SkeletonModel({ frameData, visible = true }: SkeletonModelProps) {
   const groupRef = useRef<THREE.Group>(null);
-  const skeletonRef = useRef<{ group: THREE.Group; bones: { [key: string]: THREE.Object3D } } | null>(null);
+  const skeletonRef = useRef<{ 
+    group: THREE.Group; 
+    joints: { [key: string]: THREE.Mesh }; 
+    bones: { [key: string]: THREE.Mesh } 
+  } | null>(null);
 
-  // Create skeleton on mount
-  useEffect(() => {
-    if (!skeletonRef.current) {
-      skeletonRef.current = createProceduralSkeleton();
-      if (groupRef.current) {
-        groupRef.current.add(skeletonRef.current.group);
-      }
-    }
-  }, []);
-
-  // Apply mocap data to skeleton
+  // Update skeleton each frame with new data
   useFrame(() => {
-    if (!skeletonRef.current || !frameData.jointCenters) return;
+    if (!frameData.jointCenters || !groupRef.current) return;
 
-    const { bones } = skeletonRef.current;
-    const joints = frameData.jointCenters;
-    const rotations = frameData.jointRotations;
-
-    // Helper function to mirror position for right-handed pitcher
-    const mirrorPosition = (pos: { x: number; y: number; z: number }) => ({
-      x: -pos.x, // Mirror X axis
-      y: pos.y,  // Keep Y (vertical)
-      z: pos.z   // Keep Z (forward/back)
-    });
-
-    // Apply positions and rotations to bones
-    Object.entries(BONE_MAPPING).forEach(([boneName, jointName]) => {
-      const bone = bones[boneName];
-      const jointPos = joints[jointName];
-      const jointRot = rotations[jointName];
-
-      if (bone && jointPos) {
-        const mirrored = mirrorPosition(jointPos);
-        
-        // Apply position
-        bone.position.set(mirrored.x, mirrored.y, mirrored.z);
-        
-        // Apply rotation if available
-        if (jointRot) {
-          bone.quaternion.set(jointRot.x, jointRot.y, jointRot.z, jointRot.w);
-        }
-      }
-    });
-
-    // Ensure feet are grounded
-    if (bones['LeftFoot'] && joints['L_Ankle']) {
-      const leftFoot = bones['LeftFoot'];
-      if (leftFoot.position.y < 0) {
-        leftFoot.position.y = 0.05; // Slight offset above ground
-      }
+    // Clear previous skeleton
+    if (skeletonRef.current) {
+      groupRef.current.remove(skeletonRef.current.group);
     }
+
+    // Create new skeleton from current frame data
+    skeletonRef.current = createDataDrivenSkeleton(frameData);
+    groupRef.current.add(skeletonRef.current.group);
+
+    // Apply any rotations if available
+    if (frameData.jointRotations && skeletonRef.current.joints) {
+      Object.entries(frameData.jointRotations).forEach(([jointName, rotation]) => {
+        const joint = skeletonRef.current?.joints[jointName];
+        if (joint && rotation) {
+          // Apply rotation - mirror for right-handed pitcher
+          joint.quaternion.set(-rotation.x, rotation.y, -rotation.z, rotation.w);
+        }
+      });
+    }
+
+    // Ensure feet stay grounded
+    const leftAnkle = skeletonRef.current.joints['L_Ankle'];
+    const rightAnkle = skeletonRef.current.joints['R_Ankle'];
     
-    if (bones['RightFoot'] && joints['R_Ankle']) {
-      const rightFoot = bones['RightFoot'];
-      if (rightFoot.position.y < 0) {
-        rightFoot.position.y = 0.05; // Slight offset above ground
-      }
+    if (leftAnkle && leftAnkle.position.y < 0.05) {
+      leftAnkle.position.y = 0.05;
+    }
+    if (rightAnkle && rightAnkle.position.y < 0.05) {
+      rightAnkle.position.y = 0.05;
     }
   });
 
   return (
-    <group ref={groupRef} visible={visible} scale={[1, 1, 1]} position={[0, 0, 0]}>
-      {/* Skeleton will be added via useEffect */}
+    <group ref={groupRef} visible={visible} scale={[2, 2, 2]} position={[0, 0, 0]}>
+      {/* Skeleton will be created dynamically each frame */}
     </group>
   );
 }

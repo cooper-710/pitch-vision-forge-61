@@ -276,11 +276,13 @@ function Scene({ motionData, currentFrame, cameraView, showRealisticSkeleton }: 
   
   return (
     <>
-      {/* Enhanced Lighting */}
-      <ambientLight intensity={0.4} color="#001133" />
-      <pointLight position={[8, 8, 8]} intensity={0.6} color="#00ccff" />
-      <pointLight position={[-8, -8, -8]} intensity={0.4} color="#0066cc" />
-      <pointLight position={[0, 10, 0]} intensity={0.3} color="#ffffff" />
+      {/* Enhanced Lighting for Skeleton Visibility */}
+      <ambientLight intensity={0.8} color="#ffffff" />
+      <directionalLight position={[10, 10, 5]} intensity={1.2} color="#ffffff" />
+      <directionalLight position={[-5, 8, 3]} intensity={0.8} color="#ffffff" />
+      <pointLight position={[8, 8, 8]} intensity={0.6} color="#ffffff" />
+      <pointLight position={[-8, -8, -8]} intensity={0.4} color="#ffffff" />
+      <pointLight position={[0, 10, 0]} intensity={0.5} color="#ffffff" />
       
       {/* Enhanced Grid with ground reference */}
       <Grid
