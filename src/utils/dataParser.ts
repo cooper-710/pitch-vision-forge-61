@@ -324,15 +324,27 @@ export class DataParser {
     
     console.log(`[BiomechanicsCalculator] Processing ${frameNumbers.length} frames for calculations`);
     
-    // Debug first few frames of rotation data
-    for (let i = 0; i < Math.min(3, frameNumbers.length); i++) {
+    // Check if we have actual rotation data or just identity quaternions
+    let hasValidRotationData = false;
+    for (let i = 0; i < Math.min(10, frameNumbers.length); i++) {
       const frameNum = frameNumbers[i];
       const rotations = jointRotations[frameNum];
-      console.log(`[BiomechanicsCalculator] Frame ${frameNum} rotations:`, {
-        pelvis: rotations?.['Pelvis'],
-        shoulder: rotations?.['R_Shoulder'],
-        neck: rotations?.['Neck']
-      });
+      const pelvis = rotations?.['Pelvis'];
+      const shoulder = rotations?.['R_Shoulder'];
+      
+      if (pelvis && (Math.abs(pelvis.x) > 0.01 || Math.abs(pelvis.y) > 0.01 || Math.abs(pelvis.z) > 0.01 || Math.abs(pelvis.w - 1) > 0.01) ||
+          shoulder && (Math.abs(shoulder.x) > 0.01 || Math.abs(shoulder.y) > 0.01 || Math.abs(shoulder.z) > 0.01 || Math.abs(shoulder.w - 1) > 0.01)) {
+        hasValidRotationData = true;
+        break;
+      }
+    }
+    
+    console.log(`[BiomechanicsCalculator] Has valid rotation data: ${hasValidRotationData}`);
+    
+    // If no valid rotation data, use fallback immediately
+    if (!hasValidRotationData) {
+      console.warn('[BiomechanicsCalculator] No valid rotation data found, using fallback');
+      return this.generateFallbackBiomechanics(frameNumbers);
     }
     
     frameNumbers.forEach((frameNumber, index) => {
@@ -342,20 +354,8 @@ export class DataParser {
       if (currentRotations) {
         const pelvisRot = currentRotations['Pelvis'];
         const shoulderRot = currentRotations['R_Shoulder']; // Right shoulder for throwing
-        const neckRot = currentRotations['Neck'];
         
-        // Enhanced debugging for first few frames
-        if (frameNumber < 3) {
-          console.log(`[BiomechanicsCalculator] Frame ${frameNumber} joint check:`, {
-            hasPelvis: !!pelvisRot,
-            hasShoulder: !!shoulderRot,
-            hasNeck: !!neckRot,
-            pelvisQuat: pelvisRot,
-            shoulderQuat: shoulderRot
-          });
-        }
-        
-        // Calculate biomechanics metrics with enhanced validation
+        // Calculate biomechanics metrics
         let pelvisTwistVel = 0;
         let shoulderTwistVel = 0;
         let shoulderExtRot = 0;
@@ -363,38 +363,51 @@ export class DataParser {
         
         // Pelvis twist velocity calculation
         if (pelvisRot && prevRotations?.['Pelvis']) {
-          pelvisTwistVel = BiomechanicsCalculator.calculateTwistVelocity(pelvisRot, prevRotations['Pelvis'], deltaTime);
+          const currentEuler = BiomechanicsCalculator.quaternionToEuler(pelvisRot);
+          const prevEuler = BiomechanicsCalculator.quaternionToEuler(prevRotations['Pelvis']);
+          
+          let deltaYaw = currentEuler.z - prevEuler.z;
+          if (deltaYaw > Math.PI) deltaYaw -= 2 * Math.PI;
+          if (deltaYaw < -Math.PI) deltaYaw += 2 * Math.PI;
+          
+          pelvisTwistVel = (deltaYaw / deltaTime) * (180 / Math.PI);
         }
         
         // Shoulder twist velocity calculation  
         if (shoulderRot && prevRotations?.['R_Shoulder']) {
-          shoulderTwistVel = BiomechanicsCalculator.calculateTwistVelocity(shoulderRot, prevRotations['R_Shoulder'], deltaTime);
+          const currentEuler = BiomechanicsCalculator.quaternionToEuler(shoulderRot);
+          const prevEuler = BiomechanicsCalculator.quaternionToEuler(prevRotations['R_Shoulder']);
+          
+          let deltaYaw = currentEuler.z - prevEuler.z;
+          if (deltaYaw > Math.PI) deltaYaw -= 2 * Math.PI;
+          if (deltaYaw < -Math.PI) deltaYaw += 2 * Math.PI;
+          
+          shoulderTwistVel = (deltaYaw / deltaTime) * (180 / Math.PI);
         }
         
         // Shoulder external rotation (direct angle, not velocity)
         if (shoulderRot) {
-          shoulderExtRot = BiomechanicsCalculator.calculateShoulderExternalRotation(shoulderRot);
+          const shoulderEuler = BiomechanicsCalculator.quaternionToEuler(shoulderRot);
+          shoulderExtRot = Math.abs(shoulderEuler.x * (180 / Math.PI));
+          if (shoulderExtRot > 180) shoulderExtRot = 360 - shoulderExtRot;
         }
         
         // Trunk separation (angle difference between shoulder and pelvis)
         if (pelvisRot && shoulderRot) {
-          trunkSep = BiomechanicsCalculator.calculateTrunkSeparation(pelvisRot, shoulderRot);
-        }
-        
-        // Debug sample calculations every 150 frames
-        if (frameNumber % 150 === 0 && frameNumber < frameNumbers.length / 2) {
-          console.log(`[BiomechanicsCalculator] Frame ${frameNumber} calculations:`, {
-            pelvisTwistVel: pelvisTwistVel.toFixed(2),
-            shoulderTwistVel: shoulderTwistVel.toFixed(2),
-            shoulderExtRot: shoulderExtRot.toFixed(2),
-            trunkSep: trunkSep.toFixed(2)
-          });
+          const pelvisEuler = BiomechanicsCalculator.quaternionToEuler(pelvisRot);
+          const shoulderEuler = BiomechanicsCalculator.quaternionToEuler(shoulderRot);
+          
+          let separation = shoulderEuler.z - pelvisEuler.z;
+          if (separation > Math.PI) separation -= 2 * Math.PI;
+          if (separation < -Math.PI) separation += 2 * Math.PI;
+          
+          trunkSep = Math.abs(separation * (180 / Math.PI));
         }
         
         result[frameNumber] = {
           pelvisVelocity: Math.abs(pelvisTwistVel), 
           trunkVelocity: Math.abs(shoulderTwistVel),  
-          elbowTorque: Math.abs(shoulderExtRot),
+          elbowTorque: shoulderExtRot,
           shoulderTorque: trunkSep,
           pelvisTwistVelocity: pelvisTwistVel,
           shoulderTwistVelocity: shoulderTwistVel,
@@ -405,29 +418,25 @@ export class DataParser {
       }
     });
     
-    // Enhanced validation - check if we have meaningful data
+    // Check if calculations produced meaningful results
     const validFrames = frameNumbers.filter(fn => {
       const metrics = result[fn];
       return metrics && (
-        Math.abs(metrics.pelvisTwistVelocity) > 0.5 ||
-        Math.abs(metrics.shoulderTwistVelocity) > 0.5 ||
-        Math.abs(metrics.shoulderExternalRotation) > 1.0 ||
-        Math.abs(metrics.trunkSeparation) > 1.0
+        Math.abs(metrics.pelvisTwistVelocity) > 1.0 ||
+        Math.abs(metrics.shoulderTwistVelocity) > 1.0 ||
+        metrics.shoulderExternalRotation > 2.0 ||
+        metrics.trunkSeparation > 2.0
       );
     });
     
     console.log(`[BiomechanicsCalculator] Valid calculations: ${validFrames.length}/${frameNumbers.length} frames`);
     
-    // If we have very few valid calculations, force fallback data
-    if (validFrames.length < frameNumbers.length * 0.05) {
-      console.warn('[BiomechanicsCalculator] Insufficient valid data, using realistic fallback');
-      const fallbackData = this.generateFallbackBiomechanics(frameNumbers);
-      console.log('[BiomechanicsCalculator] Sample fallback data:', {
-        frame0: fallbackData[frameNumbers[0]],
-        frameMid: fallbackData[frameNumbers[Math.floor(frameNumbers.length/2)]]
-      });
-      return fallbackData;
+    // If we have very few valid calculations, use fallback data
+    if (validFrames.length < frameNumbers.length * 0.1) {
+      console.warn('[BiomechanicsCalculator] Insufficient valid calculations, using fallback');
+      return this.generateFallbackBiomechanics(frameNumbers);
     }
+    
     return result;
   }
 
