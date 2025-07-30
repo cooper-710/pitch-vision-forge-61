@@ -153,58 +153,107 @@ class BiomechanicsCalculator {
 }
 
 export class DataParser {
-  // CSV parsing helper method
+  // Robust CSV parsing helper method
   static parseCSV(content: string): string[][] {
-    const lines = content.trim().split('\n');
+    const lines = content.trim().replace(/\r\n/g, '\n').split('\n');
     return lines.map(line => {
-      // Handle both comma and tab-separated values
-      const separator = line.includes(',') ? ',' : '\t';
-      return line.split(separator).map(cell => cell.trim().replace(/"/g, ''));
+      const cells: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        const next = line[i + 1];
+        
+        if (char === '"') {
+          if (inQuotes && next === '"') {
+            current += '"';
+            i++; // skip next quote
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if ((char === ',' || char === '\t') && !inQuotes) {
+          cells.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      cells.push(current.trim());
+      return cells;
     });
   }
 
-  // Detect file format (CSV vs space-separated)
-  static detectFormat(content: string): 'csv' | 'space' {
+  // Detect file format and separator
+  static detectFormat(content: string): { format: 'csv' | 'space', separator?: string } {
     const firstLine = content.trim().split('\n')[0];
-    if (firstLine.includes(',') || firstLine.includes('\t')) {
-      return 'csv';
+    if (firstLine.includes(',')) {
+      return { format: 'csv', separator: ',' };
+    } else if (firstLine.includes('\t')) {
+      return { format: 'csv', separator: '\t' };
     }
-    return 'space';
+    return { format: 'space' };
   }
 
   static parseJointCenters(fileContent: string): { [frameNumber: number]: { [jointName: string]: JointCenter } } {
     const result: { [frameNumber: number]: { [jointName: string]: JointCenter } } = {};
-    const format = this.detectFormat(fileContent);
-    console.log(`[DataParser] Detected format: ${format} for joint centers`);
+    const formatInfo = this.detectFormat(fileContent);
+    console.log(`[DataParser] Detected format: ${formatInfo.format} for joint centers`);
     
-    let dataRows: string[][];
+    let dataRows: (string | number)[][];
     
-    if (format === 'csv') {
+    if (formatInfo.format === 'csv') {
       const csvData = this.parseCSV(fileContent);
-      // Skip header row if it exists
-      const hasHeader = csvData[0] && csvData[0].some(cell => isNaN(Number(cell)));
-      dataRows = hasHeader ? csvData.slice(1) : csvData;
+      console.log(`[DataParser] CSV sample row:`, csvData[0]?.slice(0, 10));
+      
+      // Skip header row if it exists (check if first row contains non-numeric data)
+      const hasHeader = csvData[0] && csvData[0].some(cell => 
+        cell && isNaN(Number(cell)) && !cell.match(/^-?\d*\.?\d+([eE][+-]?\d+)?$/)
+      );
+      
+      const dataStartIndex = hasHeader ? 1 : 0;
+      console.log(`[DataParser] Header detected: ${hasHeader}, starting from row ${dataStartIndex}`);
+      
+      dataRows = csvData.slice(dataStartIndex).map(row => 
+        row.map(cell => {
+          const num = Number(cell);
+          return isNaN(num) ? cell : num;
+        })
+      );
     } else {
       const lines = fileContent.trim().split('\n');
       const dataLines = lines.filter(line => line.trim() && !line.startsWith('Frame'));
-      dataRows = dataLines.map(line => line.trim().split(/\s+/));
+      dataRows = dataLines.map(line => 
+        line.trim().split(/\s+/).map(cell => {
+          const num = Number(cell);
+          return isNaN(num) ? cell : num;
+        })
+      );
     }
     
     console.log(`[DataParser] Processing ${dataRows.length} joint center frames`);
     
     dataRows.forEach((row, index) => {
-      const values = row.map(Number).filter(v => !isNaN(v));
+      // Filter and convert to numbers, handling both string and number inputs
+      const values = row.map(val => typeof val === 'number' ? val : Number(val))
+                       .filter(v => !isNaN(v) && isFinite(v));
+      
+      if (values.length === 0) {
+        console.warn(`[DataParser] No valid numeric data in row ${index}:`, row.slice(0, 5));
+        return;
+      }
       
       // Flexible parsing: handle different data layouts
       const expectedColumns = JOINT_NAMES.length * 12; // 12 values per joint
       const minColumns = JOINT_NAMES.length * 3;       // 3 values per joint (X,Y,Z only)
       
+      console.log(`[DataParser] Row ${index}: ${values.length} numeric values from ${row.length} total cells`);
+        
       if (values.length >= minColumns) {
         const frameNumber = index;
         result[frameNumber] = {};
         
         const columnsPerJoint = Math.floor(values.length / JOINT_NAMES.length);
-        console.log(`[DataParser] Frame ${index}: ${values.length} values, ${columnsPerJoint} per joint`);
         
         JOINT_NAMES.forEach((jointName, jointIndex) => {
           const startIndex = jointIndex * columnsPerJoint;
@@ -212,26 +261,29 @@ export class DataParser {
           let y = values[startIndex + 1] || 0;
           let z = values[startIndex + 2] || 0;
           
-          // Validate coordinates are numbers
-          if (isNaN(x) || isNaN(y) || isNaN(z)) {
+          // Validate coordinates are finite numbers
+          if (!isFinite(x) || !isFinite(y) || !isFinite(z)) {
             console.warn(`[DataParser] Invalid coordinates for ${jointName} at frame ${index}:`, { x, y, z });
             x = y = z = 0;
           }
           
-          // Scale normalization: detect units and convert to meters
+          // Smart scale detection and normalization
           const maxCoord = Math.max(Math.abs(x), Math.abs(y), Math.abs(z));
           let scaleFactor = 1;
-          if (maxCoord > 10) {
+          
+          if (maxCoord > 1000) {
             scaleFactor = 0.001; // millimeters to meters
-          } else if (maxCoord < 0.1) {
-            scaleFactor = 1; // already in meters
+          } else if (maxCoord > 10) {
+            scaleFactor = 0.01; // centimeters to meters  
+          } else if (maxCoord < 0.001) {
+            scaleFactor = 1000; // kilometers to meters (unlikely but safe)
           }
           
           x *= scaleFactor;
           y *= scaleFactor; 
           z *= scaleFactor;
           
-          // Axis reorientation for baseball mocap:
+          // Store with coordinate system conversion
           result[frameNumber][jointName] = {
             x: x,    // Keep X as horizontal (left-right)
             y: z,    // Z becomes vertical (up-down)
@@ -256,25 +308,37 @@ export class DataParser {
 
   static parseJointRotations(fileContent: string): { [frameNumber: number]: { [jointName: string]: JointRotation } } {
     const result: { [frameNumber: number]: { [jointName: string]: JointRotation } } = {};
-    const format = this.detectFormat(fileContent);
-    console.log(`[DataParser] Detected format: ${format} for joint rotations`);
+    const formatInfo = this.detectFormat(fileContent);
+    console.log(`[DataParser] Detected format: ${formatInfo.format} for joint rotations`);
     
-    let dataRows: string[][];
+    let dataRows: (string | number)[][];
     
-    if (format === 'csv') {
+    if (formatInfo.format === 'csv') {
       const csvData = this.parseCSV(fileContent);
       const hasHeader = csvData[0] && csvData[0].some(cell => isNaN(Number(cell)));
       dataRows = hasHeader ? csvData.slice(1) : csvData;
+      dataRows = dataRows.map(row => 
+        row.map(cell => {
+          const num = Number(cell);
+          return isNaN(num) ? cell : num;
+        })
+      );
     } else {
       const lines = fileContent.trim().split('\n');
       const dataLines = lines.filter(line => line.trim() && !line.startsWith('Frame'));
-      dataRows = dataLines.map(line => line.trim().split(/\s+/));
+      dataRows = dataLines.map(line => 
+        line.trim().split(/\s+/).map(cell => {
+          const num = Number(cell);
+          return isNaN(num) ? cell : num;
+        })
+      );
     }
     
     console.log(`[DataParser] Processing ${dataRows.length} rotation frames`);
     
     dataRows.forEach((row, index) => {
-      const values = row.map(Number).filter(v => !isNaN(v));
+      const values = row.map(val => typeof val === 'number' ? val : Number(val))
+                       .filter(v => !isNaN(v) && isFinite(v));
       
       if (values.length >= JOINT_NAMES.length * 4) {
         const frameNumber = index;
