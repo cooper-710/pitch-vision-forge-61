@@ -27,7 +27,7 @@ export function FileUpload({ onFilesLoaded }: FileUploadProps) {
     const lower = filename.toLowerCase();
     if (lower.includes('jointcenter')) return 'jointCenters';
     if (lower.includes('jointrotation')) return 'jointRotations';
-    if (lower.includes('baseballspecific')) return 'baseballMetrics';
+    if (lower.includes('baseballspecific') || lower.includes('baseball')) return 'baseballMetrics';
     return null;
   };
 
@@ -38,13 +38,14 @@ export function FileUpload({ onFilesLoaded }: FileUploadProps) {
       const file = files[i];
       const fileType = getFileType(file.name);
       
-      if (fileType && file.name.endsWith('.txt')) {
+      if (fileType && (file.name.endsWith('.txt') || file.name.endsWith('.csv'))) {
         const content = await file.text();
         newFiles.push({
           name: file.name,
           content,
           type: fileType
         });
+        console.log(`[FileUpload] Loaded ${fileType} file: ${file.name} (${content.length} characters)`);
       }
     }
     
@@ -126,7 +127,7 @@ export function FileUpload({ onFilesLoaded }: FileUploadProps) {
               Motion Capture Data Upload
             </h2>
             <p className="text-muted-foreground">
-              Upload three .txt files to begin 3D analysis
+              Upload three files (.txt or .csv) to begin 3D analysis
             </p>
           </div>
 
@@ -148,7 +149,7 @@ export function FileUpload({ onFilesLoaded }: FileUploadProps) {
               ref={inputRef}
               type="file"
               multiple
-              accept=".txt"
+              accept=".txt,.csv"
               onChange={handleChange}
               className="hidden"
             />
@@ -161,7 +162,7 @@ export function FileUpload({ onFilesLoaded }: FileUploadProps) {
               or click to browse files
             </p>
             <p className="text-xs text-muted-foreground mt-2">
-              .txt files only
+              .txt or .csv files
             </p>
           </div>
 

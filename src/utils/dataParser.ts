@@ -153,60 +153,129 @@ class BiomechanicsCalculator {
 }
 
 export class DataParser {
+  // CSV parsing helper method
+  static parseCSV(content: string): string[][] {
+    const lines = content.trim().split('\n');
+    return lines.map(line => {
+      // Handle both comma and tab-separated values
+      const separator = line.includes(',') ? ',' : '\t';
+      return line.split(separator).map(cell => cell.trim().replace(/"/g, ''));
+    });
+  }
+
+  // Detect file format (CSV vs space-separated)
+  static detectFormat(content: string): 'csv' | 'space' {
+    const firstLine = content.trim().split('\n')[0];
+    if (firstLine.includes(',') || firstLine.includes('\t')) {
+      return 'csv';
+    }
+    return 'space';
+  }
+
   static parseJointCenters(fileContent: string): { [frameNumber: number]: { [jointName: string]: JointCenter } } {
-    const lines = fileContent.trim().split('\n');
     const result: { [frameNumber: number]: { [jointName: string]: JointCenter } } = {};
+    const format = this.detectFormat(fileContent);
+    console.log(`[DataParser] Detected format: ${format} for joint centers`);
     
-    // Skip header if present
-    const dataLines = lines.filter(line => line.trim() && !line.startsWith('Frame'));
+    let dataRows: string[][];
     
-    dataLines.forEach((line, index) => {
-      const values = line.trim().split(/\s+/).map(Number);
-      // Expect 12 values per joint (X, Y, Z, Length, velocity components, acceleration components)
-      if (values.length >= JOINT_NAMES.length * 12) {
+    if (format === 'csv') {
+      const csvData = this.parseCSV(fileContent);
+      // Skip header row if it exists
+      const hasHeader = csvData[0] && csvData[0].some(cell => isNaN(Number(cell)));
+      dataRows = hasHeader ? csvData.slice(1) : csvData;
+    } else {
+      const lines = fileContent.trim().split('\n');
+      const dataLines = lines.filter(line => line.trim() && !line.startsWith('Frame'));
+      dataRows = dataLines.map(line => line.trim().split(/\s+/));
+    }
+    
+    console.log(`[DataParser] Processing ${dataRows.length} joint center frames`);
+    
+    dataRows.forEach((row, index) => {
+      const values = row.map(Number).filter(v => !isNaN(v));
+      
+      // Flexible parsing: handle different data layouts
+      const expectedColumns = JOINT_NAMES.length * 12; // 12 values per joint
+      const minColumns = JOINT_NAMES.length * 3;       // 3 values per joint (X,Y,Z only)
+      
+      if (values.length >= minColumns) {
         const frameNumber = index;
         result[frameNumber] = {};
         
+        const columnsPerJoint = Math.floor(values.length / JOINT_NAMES.length);
+        console.log(`[DataParser] Frame ${index}: ${values.length} values, ${columnsPerJoint} per joint`);
+        
         JOINT_NAMES.forEach((jointName, jointIndex) => {
-          // Take only first 3 values (X, Y, Z) and ignore the rest
-          const startIndex = jointIndex * 12;
+          const startIndex = jointIndex * columnsPerJoint;
           let x = values[startIndex] || 0;
           let y = values[startIndex + 1] || 0;
           let z = values[startIndex + 2] || 0;
           
-          // Scale normalization: if values > 10, assume millimeters and convert to meters
-          const maxCoord = Math.max(Math.abs(x), Math.abs(y), Math.abs(z));
-          if (maxCoord > 10) {
-            x /= 1000;
-            y /= 1000;
-            z /= 1000;
+          // Validate coordinates are numbers
+          if (isNaN(x) || isNaN(y) || isNaN(z)) {
+            console.warn(`[DataParser] Invalid coordinates for ${jointName} at frame ${index}:`, { x, y, z });
+            x = y = z = 0;
           }
           
+          // Scale normalization: detect units and convert to meters
+          const maxCoord = Math.max(Math.abs(x), Math.abs(y), Math.abs(z));
+          let scaleFactor = 1;
+          if (maxCoord > 10) {
+            scaleFactor = 0.001; // millimeters to meters
+          } else if (maxCoord < 0.1) {
+            scaleFactor = 1; // already in meters
+          }
+          
+          x *= scaleFactor;
+          y *= scaleFactor; 
+          z *= scaleFactor;
+          
           // Axis reorientation for baseball mocap:
-          // File Z -> Display Y (vertical)
-          // File Y -> Display Z (forward)
-          // File X -> Display X (horizontal)
           result[frameNumber][jointName] = {
-            x: x,           // Keep X as horizontal
-            y: z,           // Z becomes vertical (up/down)
-            z: y            // Y becomes forward (toward home plate)
+            x: x,    // Keep X as horizontal (left-right)
+            y: z,    // Z becomes vertical (up-down)
+            z: y     // Y becomes depth (forward-back)
           };
         });
+      } else {
+        console.warn(`[DataParser] Insufficient data in row ${index}: ${values.length} values (expected >= ${minColumns})`);
       }
     });
+    
+    // Debug sample data
+    if (Object.keys(result).length > 0) {
+      const firstFrame = result[0];
+      const sampleJoint = Object.keys(firstFrame)[0];
+      console.log(`[DataParser] Sample joint centers (frame 0, ${sampleJoint}):`, firstFrame[sampleJoint]);
+      console.log(`[DataParser] Total joint center frames processed: ${Object.keys(result).length}`);
+    }
     
     return result;
   }
 
   static parseJointRotations(fileContent: string): { [frameNumber: number]: { [jointName: string]: JointRotation } } {
-    const lines = fileContent.trim().split('\n');
     const result: { [frameNumber: number]: { [jointName: string]: JointRotation } } = {};
+    const format = this.detectFormat(fileContent);
+    console.log(`[DataParser] Detected format: ${format} for joint rotations`);
     
-    const dataLines = lines.filter(line => line.trim() && !line.startsWith('Frame'));
-    console.log(`[DataParser] Parsing ${dataLines.length} rotation frames`);
+    let dataRows: string[][];
     
-    dataLines.forEach((line, index) => {
-      const values = line.trim().split(/\s+/).map(Number);
+    if (format === 'csv') {
+      const csvData = this.parseCSV(fileContent);
+      const hasHeader = csvData[0] && csvData[0].some(cell => isNaN(Number(cell)));
+      dataRows = hasHeader ? csvData.slice(1) : csvData;
+    } else {
+      const lines = fileContent.trim().split('\n');
+      const dataLines = lines.filter(line => line.trim() && !line.startsWith('Frame'));
+      dataRows = dataLines.map(line => line.trim().split(/\s+/));
+    }
+    
+    console.log(`[DataParser] Processing ${dataRows.length} rotation frames`);
+    
+    dataRows.forEach((row, index) => {
+      const values = row.map(Number).filter(v => !isNaN(v));
+      
       if (values.length >= JOINT_NAMES.length * 4) {
         const frameNumber = index;
         result[frameNumber] = {};
@@ -223,19 +292,19 @@ export class DataParser {
           // Validate quaternion magnitude
           const magnitude = Math.sqrt(quat.x * quat.x + quat.y * quat.y + quat.z * quat.z + quat.w * quat.w);
           if (magnitude < 0.1) {
-            // Invalid quaternion, use identity
             quat.x = 0; quat.y = 0; quat.z = 0; quat.w = 1;
           } else if (Math.abs(magnitude - 1.0) > 0.1) {
-            // Normalize quaternion
             quat.x /= magnitude; quat.y /= magnitude; quat.z /= magnitude; quat.w /= magnitude;
           }
           
           result[frameNumber][jointName] = quat;
         });
+      } else {
+        console.warn(`[DataParser] Insufficient rotation data in row ${index}: ${values.length} values (expected >= ${JOINT_NAMES.length * 4})`);
       }
     });
     
-    // Debug first frame rotation data
+    // Debug sample data
     if (Object.keys(result).length > 0) {
       const firstFrame = result[0];
       console.log('[DataParser] Sample joint rotations (frame 0):', {
@@ -243,6 +312,7 @@ export class DataParser {
         R_Shoulder: firstFrame?.['R_Shoulder'],
         Neck: firstFrame?.['Neck']
       });
+      console.log(`[DataParser] Total rotation frames processed: ${Object.keys(result).length}`);
     }
     
     return result;

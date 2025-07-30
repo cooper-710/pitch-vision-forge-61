@@ -13,16 +13,20 @@ interface MotionViewer3DProps {
 /* ---- Procedural Skeleton Component ---- */
 function AnatomicalSkeleton({ frameData }: { frameData: FrameData }) {
   const skeletonRef = useRef<THREE.Group>(null);
+  const debugLog = useRef(true);
 
-  // Create bone geometry
+  // Create bone geometry with better visibility
   const createBone = (start: THREE.Vector3, end: THREE.Vector3, radius: number = 0.02) => {
     const direction = new THREE.Vector3().subVectors(end, start);
     const length = direction.length();
+    
+    if (length < 0.001) return null; // Skip zero-length bones
+    
     const geometry = new THREE.CylinderGeometry(radius, radius * 0.7, length, 8);
-    const material = new THREE.MeshPhongMaterial({ 
-      color: '#e8e8e8',
+    const material = new THREE.MeshBasicMaterial({ 
+      color: '#00ff88',
       transparent: true,
-      opacity: 0.9
+      opacity: 0.8
     });
     const bone = new THREE.Mesh(geometry, material);
     
@@ -34,13 +38,13 @@ function AnatomicalSkeleton({ frameData }: { frameData: FrameData }) {
     return bone;
   };
 
-  // Create joint sphere
-  const createJoint = (position: THREE.Vector3, radius: number = 0.03) => {
+  // Create joint sphere with better visibility
+  const createJoint = (position: THREE.Vector3, radius: number = 0.04, color: string = '#ff4488') => {
     const geometry = new THREE.SphereGeometry(radius, 12, 8);
-    const material = new THREE.MeshPhongMaterial({ 
-      color: '#ffffff',
+    const material = new THREE.MeshBasicMaterial({ 
+      color: color,
       transparent: true,
-      opacity: 0.8
+      opacity: 0.9
     });
     const joint = new THREE.Mesh(geometry, material);
     joint.position.copy(position);
@@ -58,35 +62,67 @@ function AnatomicalSkeleton({ frameData }: { frameData: FrameData }) {
 
     const joints = frameData.jointCenters;
     const positions: { [key: string]: THREE.Vector3 } = {};
+    let validJoints = 0;
+    let totalJoints = 0;
 
     // Convert joint data to THREE.Vector3 positions with coordinate transformation
     Object.entries(joints).forEach(([name, joint]) => {
-      if (joint) {
-        // Scale and transform coordinates for proper visualization
+      totalJoints++;
+      if (joint && typeof joint.x === 'number' && typeof joint.y === 'number' && typeof joint.z === 'number') {
+        // Apply better scaling based on data magnitude
+        const scale = 10; // Increase scale for better visibility
         positions[name] = new THREE.Vector3(
-          -joint.x * 0.01, // Mirror X and scale down
-          joint.y * 0.01,  // Scale down Y
-          joint.z * 0.01   // Scale down Z
+          joint.x * scale,    // Keep X as horizontal
+          joint.y * scale,    // Y as vertical  
+          joint.z * scale     // Z as depth
         );
+        validJoints++;
+      } else if (debugLog.current && frameData.frameNumber === 0) {
+        console.warn(`[Skeleton] Invalid joint data for ${name}:`, joint);
       }
     });
 
+    // Debug log once
+    if (debugLog.current && frameData.frameNumber === 0) {
+      console.log(`[Skeleton] Frame ${frameData.frameNumber}: ${validJoints}/${totalJoints} valid joints`);
+      console.log('[Skeleton] Sample positions:', Object.fromEntries(Object.entries(positions).slice(0, 3)));
+      debugLog.current = false;
+    }
+
     // Create bones based on connections
+    let validBones = 0;
     BONE_CONNECTIONS.forEach(([startJoint, endJoint]) => {
       const startPos = positions[startJoint];
       const endPos = positions[endJoint];
       
       if (startPos && endPos) {
-        const bone = createBone(startPos, endPos);
-        skeletonRef.current!.add(bone);
+        const bone = createBone(startPos, endPos, 0.05);
+        if (bone) {
+          skeletonRef.current!.add(bone);
+          validBones++;
+        }
       }
     });
 
-    // Create joints at connection points
+    // Create joints at connection points with different colors for key joints
     Object.entries(positions).forEach(([name, pos]) => {
-      const joint = createJoint(pos);
+      let color = '#ff4488'; // Default pink
+      let radius = 0.06;
+      
+      // Color coding for important joints
+      if (name === 'Pelvis') { color = '#ff0000'; radius = 0.08; } // Red
+      else if (name === 'Neck') { color = '#0000ff'; radius = 0.08; } // Blue
+      else if (name.includes('Shoulder')) { color = '#00ff00'; radius = 0.07; } // Green
+      else if (name.includes('Wrist')) { color = '#ffff00'; radius = 0.05; } // Yellow
+      
+      const joint = createJoint(pos, radius, color);
       skeletonRef.current!.add(joint);
     });
+
+    // Log bone creation progress occasionally
+    if (frameData.frameNumber % 30 === 0 && validBones === 0) {
+      console.warn(`[Skeleton] Frame ${frameData.frameNumber}: No valid bones created from ${BONE_CONNECTIONS.length} connections`);
+    }
   });
 
   return <group ref={skeletonRef} />;
